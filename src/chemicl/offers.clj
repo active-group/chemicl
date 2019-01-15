@@ -8,33 +8,85 @@
 
 
 ;; --- Offers ---------
+;; An offer is a simple non-deterministic state machine
+
+(defn empty? [[status]]
+  (= status
+     :empty))
+
+(defn completed? [[status]]
+  (= status
+     :completed))
+
+(defn rescinded? [[status]]
+  (= status
+     :rescinded))
+
+(defn waiting? [[status]]
+  (= status
+     :waiting))
+
+;; accessors
+
+(defn offer-answer [o]
+  (assert (completed? o))
+  (second o))
+
+(defn offer-waiter [o]
+  (assert (waiting? o))
+  (second o))
+
+;; ... beginning with :empty
 
 (defmonadic new-offer []
-  [o (conc/new-ref {:status :pending
-                    :payload nil})]
-  (m/return o))
+  [oref (conc/new-ref [:empty])]
+  (m/return oref))
 
-(defmonadic get-answer [oref]
+;; state transitions
+
+(defmonadic rescind [oref]
   [o (conc/read oref)]
-  (m/return (:payload o)))
+  (whenm (or (empty? o)
+             (waiting? o))
+    ;; cas to rescinded
+    [succ (conc/cas oref o [:rescinded])]
 
-(defmonadic rescind-offer [oref]
+    ;; unpark when we successfully rescinded the offer
+    (whenm (and succ
+                (waiting? o))
+      (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)))
+
+  ;; here we expect the offer to either be recinded or completed
+  [offer (conc/read oref)]
+  (cond
+    (completed? offer) ;; somebody slid in
+    (m/return (offer-answer offer))
+
+    (rescinded? offer) ;; we were successful
+    (m/return false)
+
+    :else
+    (assert false "We expect offer to be rescinded or completed")))
+
+(defmonadic wait [oref]
   [o (conc/read oref)]
-  (if (or (= :completed (:status o))
-          (= :rescinded (:status o)))
-    ;; failed to rescind
-    false
-    ;; try to rescind
-    (m/monadic
-     [succ (conc/cas oref o (assoc o :status :rescinded))]
-     (if succ
-       true
-       (rescind-offer oref)))))
+  [me (conc/get-current-task)]
+  (let [[status arg] o])
+  [succ
+   (cond
+     (empty? o)
+     (conc/cas oref o [:waiting me])
 
-(defmonadic answer-offer [oref ans]
-  (conc/swap
-   oref
-   (fn [o]
-     (-> o
-         (assoc :payload ans)
-         (assoc :status :completed)))))
+     (completed? o)
+     false
+
+     (rescinded? o)
+     false
+
+     (waiting? o)
+     (assert false "Cannot wait twice on a ref"))]
+
+  (if succ
+    (conc/park)
+    ;; else continue
+    (m/return nil)))

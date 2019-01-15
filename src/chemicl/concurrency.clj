@@ -5,6 +5,7 @@
    [active.clojure.lens :as lens]
    [active.clojure.monad :as m]))
 
+(defn uuid [] (str (java.util.UUID/randomUUID)))
 
 ;; --- Task locks ----------
 
@@ -91,6 +92,21 @@
 
 
 ;; --- Cont concurrency monad: commands ---------
+
+(acr/define-record-type CallCC
+  (make-call-cc f)
+  call-cc?
+  [f call-cc-function])
+
+(defn call-cc [f] (make-call-cc f))
+
+(acr/define-record-type Throw
+  (make-throw k v)
+  throw?
+  [k throw-k
+   v throw-value])
+
+(defn throw [k v] (make-throw k v))
 
 (acr/define-record-type CASCommand
   (make-cas-command ref ov nv)
@@ -181,7 +197,7 @@
   print-command?
   [l print-command-line])
 
-(defn print [& s] (make-print-command (str s)))
+(defn print [& s] (make-print-command s))
 
 
 ;; --- Cont concurrency monad: status return values ---------
@@ -236,15 +252,24 @@
           (m/free-return? m1)
           (recur (c (m/free-return-val m1)) task)
 
+          (call-cc? m1)
+          (let [f (call-cc-function m1)]
+            (recur (f c) task))
+
+          (throw? m1)
+          (let [k (throw-k m1)
+                v (throw-value m1)]
+            (println "throwing execution to" (pr-str (k v)))
+            (recur (k v) task))
+
           ;; Read & CAS
 
           (new-ref-command? m1)
-          (do (println "got new ref command")
-              (recur (c (atom (new-ref-command-init m1))) task))
+          (let [a (atom (new-ref-command-init m1))]
+            (recur (c a) task))
 
           (cas-command? m1)
           (do
-            (println "--- CAS COMMAND: " (pr-str m1))
             (let [succ 
                   (compare-and-set! (cas-command-ref m1)
                                     (cas-command-old-value m1)
@@ -291,7 +316,7 @@
 
           (print-command? m1)
           (do
-            (println (print-command-line m1))
+            (apply println (print-command-line m1))
             (recur (c nil) task))))
 
       (m/free-return? m)
@@ -329,9 +354,23 @@
       (exit-command? m)
       (make-exit-status)
 
+      ;; callcc
+
+      (call-cc? m)
+      (let [f (call-cc-function m)]
+        (recur (f (fn [_] (make-exit-command))) task))
+
+      (throw? m)
+      (let [k (throw-k m)
+            v (throw-value m)]
+        (println "throwing execution to" (pr-str (k v)))
+        (recur (k v) task))
+
+      ;; debugging only
+
       (print-command? m)
       (do
-        (println (print-command-line m))
+        (apply println (print-command-line m))
         (make-exit-status))
       )))
 
@@ -432,6 +471,85 @@
 (defn run-many-to-many-after [m task delay]
   (run-mn m task (partial x/run-after delay)))
 
+#_(defn run-many-to-one
+
+  ([m] (run-many-to-one m (uuid)))
+
+  ([m tid]
+   (loop [m m
+          tid tid
+          threads {} ;; tid -> m
+          parked {}] ;; tid -> cont
+     (let [res (run-cont m tid)]
+       (cond
+
+         ;; PARKING
+
+         ;; (park-status? res)
+         ;; (let [[next-tid next-m] (first threads)]
+         ;;   (recur
+         ;;    next-m next-tid
+         ;;    (dissoc threads next-tid)
+         ;;    (assoc parked tid
+         ;;           (park-status-continuation res))))
+
+         ;; (unpark-status? res)
+         ;; (let [cont (unpark-status-continuation res)
+         ;;       utask (unpark-status-unpark-task res)
+         ;;       uvalue (unpark-status-value res)]
+         ;;   ;; Unpark the parked task
+         ;;   (let [cont (get parked utask)
+         ;;         new-threads (assoc threads utask (cont uvalue))
+         ;;         new-parked (dissoc parked utask)]
+         ;;     (recur (cont uvalue) utask))
+
+         ;;   ;; Continue the unparking task
+         ;;   (when cont
+         ;;     (run-many-to-many (cont true) task)))
+
+
+         ;; FORKING
+
+         (fork-status? res)
+         (let [cont (fork-status-continuation res)
+               fm (fork-status-monad res)
+               new-tid (uuid)]
+           ;; Run the forked task, put cc into threads map
+           (recur fm new-tid
+                  (assoc threads tid (cont new-tid))
+                  parked))
+
+
+         ;; BACKOFF
+
+         ;; (timeout-status? res)
+         ;; (let [cont (timeout-status-continuation res)
+         ;;       msec (timeout-status-timeout res)]
+         ;;   (run-many-to-many-after (cont nil) task msec))
+
+         ;; (backoff-status? res)
+         ;; (let [counter (backoff-status-counter res)
+         ;;       cont (backoff-status-continuation res)
+         ;;       k #(run-many-to-many
+         ;;           (cont nil)
+         ;;           (lens/shove task
+         ;;                       task-backoff-lens
+         ;;                       (inc counter)))]
+         ;;   ;; backoff once
+         ;;   (backoff-once! counter k))
+
+
+         ;; QUITTING
+
+         (exit-status? res)
+         (if-let [[next-tid next-m] (first threads)]
+           (recur next-m next-tid
+                  (dissoc threads next-tid)
+                  parked)
+           ;; else
+           :exit
+           ))))))
+
 
 
 ;; Combinations
@@ -459,10 +577,10 @@
        )))))
 
 (defn swap
-  [ref f]
+  [ref f & args]
   (m/monadic
    [ov (read ref)]
-   (let [nv (f ov)])
+   (let [nv (apply f ov args)])
    (print "cassing")
    [succ (cas ref ov nv)]
    (print "succ: " succ)
@@ -471,89 +589,11 @@
      ;; maybe should backoff?
      (swap ref f))))
 
-
-
-
-;; --- Log run ---------
-
-#_(defn append [log item]
-  (conj log item))
-
-#_(acr/define-record-type FakeRef
-  (make-fake-ref v)
-  fake-ref?
-  [v fake-ref-value])
-
-#_(defn uuid! []
-  (java.util.UUID/randomUUID))
-
-#_(defn log-run [m task]
-  (loop [m m
-         task task
-         log []
-         refs {}
-         parked {}
-         waiting {}]
-    (cond
-
-      (m/free-bind? m)
-      (let [m1 (m/free-bind-monad m)
-            c (m/free-bind-cont m)]
-        (cond
-          (m/free-return? m1)
-          (recur (c (m/free-return-val m1)) task log refs parked waiting)
-
-          (new-ref-command? m1)
-          (let [r (make-fake-ref
-                   (new-ref-command-init m1))
-                id (uuid!)]
-            (recur (c id)
-                   task
-                   (append log "new-ref-command")
-                   (assoc refs id r)
-                   parked waiting))
-
-          (park-command? m1)
-          (let [[t k] (first waiting)]
-            (recur (k nil) t (append log "parked")
-                   refs (assoc parked task c)
-                   (dissoc waiting t)))
-          )
-
-
-
-          )
-        ))))
-
-
-
-
-
-
-
-;; ---------------------------------------------
-
-(defmacro mdo [& args]
-  `(m/monadic
-    ~@args))
-
-
-(def p1
+(defn reset
+  [ref nv]
   (m/monadic
-   [t (get-current-task)]
-   (let [real-tid (.getId (Thread/currentThread))])
-   (print "what")
-   (park)
-   (print (str "my task: " t))
-   (print (str "real id: " real-tid))))
-
-(def parentp
-  (m/monadic
-   (print "------")
-   [child-tid (fork p1)]
-   (print (str "child tid: " child-tid))
-   (unpark child-tid nil)
-   (print (str "jajajaj"))
-   ))
-
-(run-cont parentp 0)
+   [ov (read ref)]
+   [succ (cas ref ov nv)]
+   (if succ
+     (m/return nv)
+     (reset ref nv))))

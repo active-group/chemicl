@@ -1,75 +1,47 @@
 (ns chemicl.refs
   (:require
+   [chemicl.offers :as o]
+   [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.concurrency :as conc]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
    [active.clojure.monad :as m]))
 
-;; Waiters
-;; A waiter holds an offer value and a waiter
-
-(acr/define-record-type Waiter
-  (make-waiter task offer)
-  waiter?
-  [task waiter-task
-   offer waiter-offer])
-
-
 (acr/define-record-type Ref
-  (make-ref data-ref waiters-ref)
+  (make-ref data offers)
   ref?
-  [data-ref ref-data
-   waiters-ref ref-waiters])
-
-;; module type S = sig
-;;   type 'a ref
-;;   type ('a,'b) reagent
-;;   val mk_ref   : 'a -> 'a ref
-;;   val read     : 'a ref -> (unit, 'a) reagent
-;;   val read_imm : 'a ref -> 'a
-;;   val cas      : 'a ref -> 'a -> 'a -> (unit, unit) reagent
-;;   val cas_imm  : 'a ref -> 'a -> 'a -> bool
-;;   val upd      : 'a ref -> ('a -> 'b -> ('a *'c) option) -> ('b,'c) reagent
-;; end
+  [data ref-data
+   offers ref-offers])
 
 (defn new-ref [init]
-  (m/monadic
-   (conc/print "making a new ref")
-   [r1 (conc/new-ref init)]
-   [r2 (conc/new-ref [])]
-   (m/return
-    (make-ref r1 r2))))
+  (conc/new-ref (make-ref nil [])))
 
-(defn read-data [r]
-  (m/monadic
-   (conc/print "Reading from ref")
-   (conc/read 
-    (ref-data r))))
+(defmonadic read [refref]
+  (conc/read refref))
 
-(defn cas-data [r ov nv]
-  (conc/cas 
-   (ref-data r) ov nv))
+(defmonadic cas [refref ov nv]
+  (conc/cas refref ov nv))
 
-;; TODO: make offers a fine-grained circular pool
-(defn- put-waiter [ref task offer]
-  (conc/swap (ref-waiters ref)
-             (fn [ws]
-               (conj ws (make-waiter task offer)))))
+;; the new refs api
 
-(defn put-offer [ref offer]
-  (m/monadic
-   [me (conc/get-current-task)]
-   (put-waiter ref me offer)
-   (m/return nil)))
+(defn add-offer [refref offer-ref]
+  (whenm offer-ref
+    (conc/swap
+     refref
+     (fn [ref]
+       (make-ref
+        (ref-data ref)
+        (conj (ref-offers ref)
+              offer-ref))))))
 
-(defn wake-all-waiters [ref]
-  (m/monadic
-   [ws (conc/read (ref-waiters ref))]
-   (conc/print "ws: " (pr-str ws))
-   (let [ts (map waiter-task ws)])
-   (m/sequ_
-    (map conc/unpark ts))))
+(defmonadic offers-rescind-offers [offers]
+  (whenm (not (empty? offers))
+    (o/rescind (first offers))
+    (offers-rescind-offers (rest offers))))
 
-(defn wake-all-waiters! [ref]
-  (conc/run-many-to-many (wake-all-waiters ref)))
-
+(defmonadic rescind-offers [refref]
+  [ref (conc/read refref)]
+  (offers-rescind-offers (ref-offers ref))
+  ;; TODO: offers are now rescinded but the offers refs are still in refrefs
+  ;; Maybe fork a garbage collecting process here
+  )

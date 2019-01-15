@@ -36,6 +36,7 @@
   [^Runnable r]
   (exec @executor r))
 
+;; FIXME: spwan a new timer thread each time. reuse a single timer thread for all invocations.
 (defn run-after
   "Runs Runnable r in a thread pool thread after msec"
   [^Long msec
