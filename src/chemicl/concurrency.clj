@@ -131,6 +131,8 @@
 
 (defn new-ref [init] (make-new-ref-command init))
 
+;; parking and unparking
+
 (acr/define-record-type ParkCommand
   (make-park-command)
   park-command?
@@ -287,9 +289,11 @@
           (make-park-status c)
 
           (unpark-command? m1)
-          (make-unpark-status
-           c (unpark-command-task m1)
-           (unpark-command-value m1))
+          (do 
+            (println "UNPARKING THAT FUCK")
+            (make-unpark-status
+             c (unpark-command-task m1)
+             (unpark-command-value m1)))
 
           (fork-command? m1)
           (make-fork-status c (fork-command-monad m1))
@@ -582,12 +586,26 @@
    [ov (read ref)]
    (let [nv (apply f ov args)])
    (print "cassing")
+   (let [_ (println (pr-str @ref))])
+   [succ (cas ref ov nv)]
+   (print "succ: " succ)
+   (let [_ (println (pr-str @ref))])
+   (if succ
+     (m/return nv)
+     ;; maybe should backoff?
+     (swap ref f))))
+
+(defn swapm
+  [ref cont]
+  (m/monadic
+   [ov (read ref)]
+   [nv (cont ov)]
    [succ (cas ref ov nv)]
    (print "succ: " succ)
    (if succ
      (m/return nv)
      ;; maybe should backoff?
-     (swap ref f))))
+     (swapm ref cont))))
 
 (defn reset
   [ref nv]

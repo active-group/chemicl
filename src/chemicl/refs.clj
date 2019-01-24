@@ -35,9 +35,7 @@
               offer-ref))))))
 
 (defmonadic offers-rescind-offers [offers]
-  (whenm (not (empty? offers))
-    (o/rescind (first offers))
-    (offers-rescind-offers (rest offers))))
+  (m/sequ_ (map o/rescind offers)))
 
 (defmonadic rescind-offers [refref]
   [ref (conc/read refref)]

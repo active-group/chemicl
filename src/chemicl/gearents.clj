@@ -2,67 +2,296 @@
   (:require
    [active.clojure.monad :as m]
    [active.clojure.record :as acr]
+   [chemicl.message-queue :as mq]
+   [chemicl.channels :as ch]
+   [chemicl.post-commit :as pc]
    [chemicl.concurrency :as conc]
    [chemicl.offers :as offers]
    [chemicl.kcas :as kcas]
    [chemicl.refs :as refs]
    [chemicl.reactions :as rx]
+   [chemicl.reaction-data :as rx-data]
    [chemicl.monad :as cm :refer [defmonadic whenm]]))
 
 
 ;; -----------------------------------------------
-;; Another try
-
-(acr/define-record-type SequentialComposition
-  (>>>> l r)
-  >>>>?
-  [l >>>>-l
-   r >>>>-r])
+;; Internal building blocks
 
 (acr/define-record-type Update
-  (upd r f)
+  (make-upd r f k)
   upd?
   [r upd-ref
-   f upd-fn])
+   f upd-fn
+   k upd-k])
 
 (acr/define-record-type CAS
-  (cas r ov nv)
+  (make-cas r ov nv k)
   cas?
   [r cas-ref
    ov cas-old
-   nv cas-new])
+   nv cas-new
+   k cas-k])
 
 (acr/define-record-type Read
-  (read r)
+  (make-read r k)
   read?
-  [r read-ref])
+  [r read-ref
+   k read-k])
+
+(acr/define-record-type Swap
+  (make-swap ep k)
+  swap?
+  [ep swap-endpoint
+   k swap-k])
 
 (acr/define-record-type Choose
-  (choose l r)
+  (make-choose l r)
   choose?
   [l choose-l
    r choose-r])
 
+(acr/define-record-type PostCommit
+  (make-post-commit f k)
+  post-commit?
+  [f post-commit-f
+   k post-commit-k])
+
+(acr/define-record-type Commit
+  (make-commit)
+  commit?
+  [])
+
+(acr/define-record-type Return
+  (make-return v k)
+  return?
+  [v return-value
+   k return-k])
+
+(acr/define-record-type CompleteOffer
+  (make-complete-offer o k)
+  complete-offer?
+  [o complete-offer-offer
+   k complete-offer-k])
 
 ;; -----------------------------------------------
-;; reagent -> reaction
+;; API
+
+(defn >>> [l r]
+  (fn [k]
+    (l (r k))))
+
+(defn upd [r f]
+  (fn [k]
+    (make-upd r f k)))
+
+(defn cas [r ov nv]
+  (fn [k]
+    (make-cas r ov nv k)))
+
+(defn read [r]
+  (fn [k]
+    (make-read r k)))
+
+(defn swap [ep]
+  (fn [k]
+    (make-swap ep k)))
+
+(defn choose [l r]
+  (fn [k]
+    (make-choose (l k) (r k))))
+
+(defn post-commit [f]
+  (fn [k]
+    (make-post-commit f k)))
+
+(defn return [v]
+  (fn [k]
+    (println "making a return")
+    (make-return v k)))
+
+;; -----------------------------------------------
+;; Helpers
+
+(defn may-sync? [rea]
+  (cond
+    (upd? rea)
+    true
+
+    (swap? rea)
+    true
+
+    (commit? rea)
+    false
+
+    (post-commit? rea)
+    (may-sync? (post-commit-k rea))
+
+    (cas? rea)
+    (may-sync? (read-k rea))
+
+    (read? rea)
+    (may-sync? (read-k rea))
+
+    (choose? rea)
+    (or (may-sync? (choose-l rea))
+        (may-sync? (choose-r rea)))))
+
+;; FIXME: loop recur
+(defn- compose [rea r]
+  (cond
+    (upd? rea)
+    (make-upd
+     (upd-ref rea)
+     (upd-fn rea)
+     (compose (upd-k rea) r))
+
+    (swap? rea)
+    (make-swap
+     (swap-endpoint rea)
+     (compose (swap-k rea) r))
+
+    (commit? rea)
+    r
+
+    (post-commit? rea)
+    (make-post-commit
+     (post-commit-f rea)
+     (compose (post-commit-k rea) r))
+
+    (cas? rea)
+    (make-cas
+     (cas-ref rea)
+     (cas-old rea)
+     (cas-new rea)
+     (compose (cas-k rea) r))
+
+    (read? rea)
+    (make-read
+     (read-ref rea)
+     (compose (read-k rea) r))
+
+    (choose? rea)
+    (make-choose
+     (compose (choose-l rea) r)
+     (compose (choose-r rea) r))
+
+    (complete-offer? rea)
+    (make-complete-offer
+     (complete-offer-offer rea)
+     (compose (complete-offer-k rea) r))
+
+    (return? rea)
+    (make-return
+     (return-value rea)
+     (compose (return-k rea) r))
+
+    ))
+
+(defn compose-n [rea & reas]
+  (reduce compose rea reas))
+
+
+
+;; -----------------------------------------------
 
 (declare try-react)
 
-(defmonadic try-react-cas [rea a oref]
+;; --- Message passing
+
+(acr/define-record-type Message
+  (make-message v rx k o)
+  message?
+  [v message-value
+   rx message-sender-rx
+   k message-sender-k
+   o message-sender-offer])
+
+(defmonadic message-is-active? [m]
+  (conc/print "active?" (pr-str m))
+  (let [oref (message-sender-offer m)])
+  (conc/print "--- oref" (pr-str oref))
+  [o (conc/read oref)]
+  (m/return
+   (offers/active? o)))
+
+(defmonadic try-react-swap-from [k a rx oref msgs retry?]
+  (conc/print "from --- " (pr-str msgs))
+  (if (empty? msgs)
+    (m/return
+     (if retry? :retry :block))
+    ;; else not empty
+    ;; TODO: check that it is not our own message (compare oref with sender offer)
+    ;; ha, caught one
+    (m/monadic
+     (conc/print "ha, caught one" (first msgs))
+     (let [msg (first msgs)
+
+           sender-a (message-value msg)
+           sender-rx (message-sender-rx msg)
+           sender-k (message-sender-k msg)
+           sender-oref (message-sender-offer msg)])
+
+     (conc/print "after let")
+     
+     (let [new-rx (rx-data/rx-union rx sender-rx)
+           new-rea (compose-n sender-k
+                              (make-complete-offer sender-oref (make-commit))
+                              (make-return sender-a (make-commit))
+                              k)])
+     (conc/print "after second let")
+     (conc/print (pr-str new-rea))
+     (conc/print (pr-str sender-a))
+     (conc/print (pr-str new-rx))
+     (conc/print (pr-str oref))
+     (try-react new-rea a new-rx oref) 
+     )))
+
+(defmonadic try-react-swap [rea a rx oref]
+  (let [ep (swap-endpoint rea)
+        k (swap-k rea)
+        ;; our read end:
+        in (ch/endpoint-incoming ep)
+        ;; our write end:
+        out (ch/endpoint-outgoing ep)])
+
+  (conc/print "--- begin try-react-swap")
+
+  ;; push offer (if any)
+  (whenm oref
+    (conc/print "pushing to" (pr-str out))
+    (mq/push out (make-message a rx k oref)))
+
+  ;; clean the in queue
+  (mq/clean in message-is-active?)
+
+  ;; finally: search for matching messages
+  [mqe (mq/empty? in)]
+  (if-not mqe
+    (m/monadic
+     [msgs (mq/snapshot in)]
+     (try-react-swap-from k a rx oref msgs false))
+    ;; else block
+    (m/return :block)))
+
+;; --- Shared memory
+
+(defmonadic try-react-cas [rea a rx oref]
   (let [r (cas-ref rea)
         ov (cas-old rea)
-        nv (cas-new rea)])
-  (m/return [(rx/rx-from-cas [r ov nv]) nil]))
+        nv (cas-new rea)
+        k (cas-k rea)])
+  (try-react k nil (rx-data/add-cas rx [r ov nv]) oref))
 
-(defmonadic try-react-read [rea a oref]
-  (let [r (read-ref rea)])
+(defmonadic try-react-read [rea a rx oref]
+  (let [r (read-ref rea)
+        k (read-k rea)])
   [v (refs/read r)]
-  (m/return [(rx/empty-rx) v]))
+  (try-react k v rx oref))
 
-(defmonadic try-react-upd [rea a oref]
+(defmonadic try-react-upd [rea a rx oref]
   (let [r (upd-ref rea)
-        f (upd-fn rea)])
+        f (upd-fn rea)
+        k (upd-k rea)])
   [ov (refs/read r)]
   (let [ov-data (refs/ref-data ov)
         ov-offers (refs/ref-offers ov)
@@ -72,97 +301,150 @@
     (m/monadic
      (let [[nv-data retv] res
            nv (refs/make-ref nv-data ov-offers)])
-     (m/return [(rx/rx-from-cas [r ov nv])
-                retv]))
+     (try-react k retv (-> rx
+                           (rx-data/add-cas [r ov nv])
+                           (rx-data/add-action
+                            (refs/rescind-offers r))) oref))
     ;; else wait on ref by placing offer there and block
     (m/monadic
      (refs/add-offer r oref)
      (m/return :block))))
 
-(defmonadic try-react-seq-comp [rea a oref]
-  (let [l (>>>>-l rea)
-        r (>>>>-r rea)])
-  [[lrx lres] (try-react l a oref)]
-  (conc/print "left result: " (pr-str lres))
-  [[rrx rres] (try-react r lres oref)]
-  (conc/print "right result: " (pr-str rres))
-  (conc/print "")
-  (m/return [(rx/rx-union lrx rrx) rres]))
+(defmonadic try-react-post-commit [rea a rx oref]
+  (let [f (post-commit-f)
+        k (post-commit-k)])
+  (try-react k a (rx-data/add-action rx (f a))))
 
-(defmonadic try-react-choose [rea a oref]
+(defmonadic try-react-choose [rea a rx oref]
   (let [l (choose-l rea)
         r (choose-r rea)])
   ;; try left
-  [lres (try-react l a oref)]
+  [lres (try-react l a rx oref)]
   (if (= :block lres)
     ;; try right
-    (try-react r a oref)
+    (try-react r a rx oref)
     ;; else return res
     (m/return lres)))
 
-(defn try-react [rea a oref]
-  (cond
-    (>>>>? rea)
-    (try-react-seq-comp rea a oref)
+(defmonadic try-react-return [rea a rx oref]
+  (conc/print "got a return to try react")
+  (let [v (return-value rea)
+        k (return-k rea)])
+  (try-react k v rx oref))
 
+(defmonadic commit-reaction [rx a]
+  [succ (rx/try-commit rx)]
+  (conc/print "commit-reaction succ: " (pr-str succ))
+  (if succ
+    (m/return a)
+    (m/return :retry)))
+
+(defmonadic try-react-commit [rea a rx oref]
+  (conc/print "try-react-commit")
+  (if oref
+    (m/monadic
+     [ores (offers/rescind oref)]
+     (if ores
+       (m/return ores)
+       (commit-reaction rx a)))
+    ;; else
+    (commit-reaction rx a)))
+
+(defmonadic try-react-complete-offer [rea a rx my-oref]
+  (conc/print "completing offer with val" (pr-str a))
+  (let [other-oref (complete-offer-offer rea)
+        k (complete-offer-k rea)])
+  [offer-rx (offers/complete other-oref a)]
+  (conc/print "offer-rx: " (pr-str offer-rx))
+  (try-react k a (rx-data/rx-union rx offer-rx) my-oref))
+
+(defn try-react [rea a rx oref]
+  (cond
     (cas? rea)
-    (try-react-cas rea a oref)
+    (try-react-cas rea a rx oref)
+
+    (read? rea)
+    (try-react-read rea a rx oref)
 
     (upd? rea)
-    (try-react-upd rea a oref)
+    (try-react-upd rea a rx oref)
+
+    (swap? rea)
+    (try-react-swap rea a rx oref)
+
+    (post-commit? rea)
+    (try-react-post-commit rea a rx oref)
 
     (choose? rea)
-    (try-react-choose rea a oref)))
+    (try-react-choose rea a rx oref)
+
+    (return? rea)
+    (try-react-return rea a rx oref)
+
+    ;; final case
+    (commit? rea)
+    (try-react-commit rea a rx oref)
+
+    ;; special case
+    (complete-offer? rea)
+    (try-react-complete-offer rea a rx oref)
+    ))
+
+(declare with-offer)
+
+(defmonadic with-offer-continue [reagent a oref]
+  [ores (offers/rescind oref)]
+  (if ores
+    ;; got an answer to return
+    (m/monadic
+     (conc/print "huh, got an answer?")
+     (m/return ores))
+    ;; else retry
+    (m/monadic
+     (conc/print "retrying")
+     (with-offer reagent a))))
 
 (defmonadic with-offer [reagent a]
   [oref (offers/new-offer)]
-  [res (try-react reagent a oref)]
+  [res (try-react reagent a (rx-data/empty-rx) oref)]
   (cond
     (= :block res)
     (m/monadic
      (conc/print "with-offer blocks -> wait on offer")
      (offers/wait oref)
      ;; when continued:
-     [ores (offers/rescind oref)]
-     (if ores
-       ;; got an answer to return
-       (m/monadic
-        (conc/print "huh, got an answer?")
-        (m/return ores))
-       ;; else retry
-       (m/monadic
-        (conc/print "retrying")
-        (with-offer reagent a))))
+     (with-offer-continue reagent a oref))
+
+    (= :retry res)
+    ;; backoff.once
+    (with-offer-continue reagent a oref)
 
     :else
     (m/return res)))
 
 (defmonadic without-offer [reagent a]
-  [res (try-react reagent a nil)]
+  [res (try-react reagent a (rx-data/empty-rx) nil)]
   (cond
     (= :block res)
     (m/monadic
      (conc/print "without-offer blocks -> try with-offer")
      (with-offer reagent a))
 
+    (= :retry res)
+    (m/monadic
+     (conc/print "without-offer retry -> retry after backoff")
+     (if (may-sync? reagent)
+       (with-offer reagent a)
+       (without-offer reagent a)))
+
     :else
     (m/return res)))
 
-(defmonadic react! [reagent a]
-  ;; phase 1 (may block)
-  [[rx res] (without-offer reagent a)]
-  ;; phase 2 (may retry)
-  (rx/rx-commit rx)
-  (m/return res))
-
-
-;; missing:
-;; choose
-;; computed
-;; message passing
-
-
-;; now message passing can be implemented in terms of update and >>>>
+(defmonadic react! [reagent-fn a]
+  ;; add commit continuation
+  (let [reagent (reagent-fn (make-commit))])
+  (conc/print (pr-str reagent))
+  (without-offer reagent a))
 
 
 ;; -----------------------------------------------
@@ -204,8 +486,8 @@
 
 (defmonadic moveroonies [ts-1 ts-2]
   (conc/print "--- begin")
-  [res (react! (>>>> (treiber-pop ts-1)
-                     (treiber-push ts-2)) :whatever)]
+  [res (react! (>>> (treiber-pop ts-1)
+                    (treiber-push ts-2)) :whatever)]
   (conc/print "mover got: " (pr-str res)))
 
 (defmonadic popeitheroonies [ts-1 ts-2]
@@ -253,16 +535,28 @@
                          )))) :whataever)]
   (conc/print "take either got: " (pr-str res)))
 
-(conc/run-many-to-many (pusheroonies ts-1 :nather))
-(conc/run-many-to-many (pusheroonies ts-2 :yooo))
+#_(conc/run-many-to-many (pusheroonies ts-1 123123))
+#_(conc/run-many-to-many (pusheroonies ts-2 :yooo))
 #_(conc/run-many-to-many (poperoonies ts-1))
-(conc/run-many-to-many (moveroonies ts-1 ts-2))
-(conc/run-many-to-many (popeitheroonies ts-1 ts-2))
-(conc/run-many-to-many (pusheitheroonies ts-1 ts-2))
-(conc/run-many-to-many (takeeither ts-1 ts-2))
+#_(conc/run-many-to-many (moveroonies ts-1 ts-2))
+#_(conc/run-many-to-many (popeitheroonies ts-1 ts-2))
+#_(conc/run-many-to-many (pusheitheroonies ts-1 ts-2))
+#_(conc/run-many-to-many (takeeither ts-1 ts-2))
+
+(defmonadic return-test []
+  (conc/print "---- begin")
+  [res (react! (return 123) :whatever)]
+  (conc/print "got: " (pr-str res)))
+
+(conc/run-many-to-many (return-test))
 
 (defn printref [r]
   (println (pr-str @r)))
 
 (printref ts-1)
 (printref ts-2)
+
+
+
+
+

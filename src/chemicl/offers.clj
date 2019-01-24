@@ -1,7 +1,9 @@
 (ns chemicl.offers
   (:require
    [chemicl.monad :as cm :refer [defmonadic whenm]]
+   [chemicl.reaction-data :as rx-data]
    [chemicl.concurrency :as conc]
+   [chemicl.post-commit :as pc]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
    [active.clojure.monad :as m]))
@@ -25,6 +27,10 @@
 (defn waiting? [[status]]
   (= status
      :waiting))
+
+(defn active? [o]
+  (or (waiting? o)
+      (empty? o)))
 
 ;; accessors
 
@@ -90,3 +96,21 @@
     (conc/park)
     ;; else continue
     (m/return nil)))
+
+(defmonadic complete [oref v] ;; v final result, returns a reaction
+  [o (conc/read oref)]
+  (m/return
+   (cond
+     (waiting? o)
+     (-> (rx-data/empty-rx)
+         (rx-data/add-cas [oref o [:completed v]])
+         (rx-data/add-action
+          (conc/unpark (offer-waiter o) nil)))
+
+     (empty? o) ;; this should not happen (?)
+     (-> (rx-data/empty-rx)
+         (rx-data/add-cas [oref o [:completed v]]))
+     
+
+     :else
+     (rx-data/empty-rx))))
