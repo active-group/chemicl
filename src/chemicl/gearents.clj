@@ -247,7 +247,8 @@
   (let [r (read-ref rea)
         k (read-k rea)])
   [v (refs/read r)]
-  (try-react k v rx oref))
+  (let [v-data (refs/ref-data v)])
+  (try-react k v-data rx oref))
 
 (defmonadic try-react-upd [rea a rx oref]
   (let [r (upd-ref rea)
