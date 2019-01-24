@@ -213,3 +213,26 @@
     ;; Check result
     (is (= :bounty @res))
     ))
+
+
+;; ----------------------
+;; --- Return -----------
+;; ----------------------
+
+(deftest return-t
+  (let [res (atom nil)
+        rea (rea/return :bounty)]
+
+    ;; run read reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea nil)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 20)
+
+    ;; Check result
+    (is (= :bounty @res))
+    ))
