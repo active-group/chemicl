@@ -236,3 +236,26 @@
     ;; Check result
     (is (= :bounty @res))
     ))
+
+
+;; ----------------------
+;; --- Lift -------------
+;; ----------------------
+
+(deftest lift-t
+  (let [res (atom :nothing)
+        rea (rea/lift inc)]
+
+    ;; run lift reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea 23)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 10)
+
+    ;; Check result
+    (is (= 24 @res))
+    ))

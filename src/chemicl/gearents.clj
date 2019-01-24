@@ -59,6 +59,12 @@
   [v return-value
    k return-k])
 
+(acr/define-record-type Lift
+  (make-lift f k)
+  lift?
+  [f lift-function
+   k lift-k])
+
 (acr/define-record-type CompleteOffer
   (make-complete-offer o k)
   complete-offer?
@@ -102,6 +108,10 @@
   (fn [k]
     (make-return v k)))
 
+(defn lift [f]
+  (fn [k]
+    (make-lift f k)))
+
 ;; -----------------------------------------------
 ;; Helpers
 
@@ -121,6 +131,12 @@
 
     (read? rea)
     (may-sync? (read-k rea))
+
+    (return? rea)
+    (may-sync? (return-k rea))
+
+    (lift? rea)
+    (may-sync? (lift-k rea))
 
     (choose? rea)
     (or (may-sync? (choose-l rea))
@@ -167,6 +183,11 @@
     (make-return
      (return-value rea)
      (compose (return-k rea) r))
+
+    (lift? rea)
+    (make-lift
+     (lift-function rea)
+     (compose (lift-k rea) r))
 
     ))
 
@@ -288,10 +309,17 @@
     ;; else return res
     (m/return lres)))
 
+;; --- Misc
+
 (defmonadic try-react-return [rea a rx oref]
   (let [v (return-value rea)
         k (return-k rea)])
   (try-react k v rx oref))
+
+(defmonadic try-react-lift [rea a rx oref]
+  (let [f (lift-function rea)
+        k (lift-k rea)])
+  (try-react k (f a) rx oref))
 
 (defmonadic commit-reaction [rx a]
   [succ (rx/try-commit rx)]
@@ -334,6 +362,9 @@
 
     (return? rea)
     (try-react-return rea a rx oref)
+
+    (lift? rea)
+    (try-react-lift rea a rx oref)
 
     ;; final case
     (commit? rea)
