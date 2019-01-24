@@ -259,3 +259,100 @@
     ;; Check result
     (is (= 24 @res))
     ))
+
+
+;; ----------------------
+;; --- Choose -----------
+;; ----------------------
+
+(deftest choose-t
+  (let [res-1-2 (atom :nothing)
+        res-2-1 (atom :nothing)
+        res-1-3 (atom :nothing)
+        res-3-1 (atom :nothing)
+        res-3-4 (atom :nothing)
+
+        ref (atom (refs/make-ref :bounty []))
+
+        rea-1 (rea/return :one)
+        rea-2 (rea/return :two)
+        rea-3 (rea/upd ref (fn [[ov a]] nil))
+        rea-4 (rea/upd ref (fn [[ov a]] nil))
+
+        rea-1-2 (rea/choose rea-1 rea-2)
+        rea-2-1 (rea/choose rea-2 rea-1)
+        rea-1-3 (rea/choose rea-1 rea-3)
+        rea-3-1 (rea/choose rea-3 rea-1)
+        rea-3-4 (rea/choose rea-3 rea-4)]
+
+    ;; --- Neither blocks
+    ;; run rea-1-2
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea-1-2 nil)]
+      (let [_ (reset! res-1-2 out)])
+      (conc/print "done-1-2")))
+
+    ;; wait
+    (Thread/sleep 10)
+
+    ;; Check res-1-2
+    (is (= :one @res-1-2))
+
+    ;; run rea-2-1
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea-2-1 nil)]
+      (let [_ (reset! res-2-1 out)])
+      (conc/print "done-2-1")))
+
+    ;; wait
+    (Thread/sleep 10)
+
+    ;; Check res-2-1
+    (is (= :two @res-2-1))
+
+
+    ;; --- Right blocks
+    ;; run rea-1-3
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea-1-3 nil)]
+      (let [_ (reset! res-1-3 out)])
+      (conc/print "done-1-3")))
+
+    ;; wait
+    (Thread/sleep 10)
+
+    ;; Check res-1-3
+    (is (= :one @res-1-3))
+
+    ;; --- Left blocks
+    ;; run rea-3-1
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea-3-1 nil)]
+      (let [_ (reset! res-3-1 out)])
+      (conc/print "done-3-1")))
+
+    ;; wait
+    (Thread/sleep 40)
+
+    ;; Check res-1-3
+    (is (= :one @res-3-1))
+
+
+    ;; --- Both block
+    ;; run rea-3-1
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea-3-4 nil)]
+      (let [_ (reset! res-3-4 out)])
+      (conc/print "done-3-4")))
+
+    ;; wait
+    (Thread/sleep 1000)
+
+    ;; Check res-3-4
+    (is (= :nothing @res-3-4))
+    ))
