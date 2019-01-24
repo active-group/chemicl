@@ -294,9 +294,9 @@
      (m/return :block))))
 
 (defmonadic try-react-post-commit [rea a rx oref]
-  (let [f (post-commit-f)
-        k (post-commit-k)])
-  (try-react k a (rx-data/add-action rx (f a))))
+  (let [f (post-commit-f rea)
+        k (post-commit-k rea)])
+  (try-react k a (rx-data/add-action rx (f a)) oref))
 
 (defmonadic try-react-choose [rea a rx oref]
   (let [l (choose-l rea)

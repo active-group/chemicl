@@ -356,3 +356,33 @@
     ;; Check res-3-4
     (is (= :nothing @res-3-4))
     ))
+
+
+;; ----------------------
+;; --- Post-Commit ------
+;; ----------------------
+
+(deftest post-commit-t
+  (let [res (atom :nope)
+        ref (atom :nein)
+        rea (rea/>>>
+             (rea/return 23)
+             (rea/post-commit
+              (fn [a]
+                (m/monadic
+                 (conc/reset ref (inc a))))))]
+
+    ;; run reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea nil)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 40)
+
+    ;; Check results
+    (is (= 23 @res))
+    (is (= 24 @ref))
+    ))
