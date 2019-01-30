@@ -117,6 +117,14 @@
 
 (defn cas [ref ov nv] (make-cas-command ref ov nv))
 
+(acr/define-record-type ResetCommand
+  (make-reset-command ref nv)
+  reset-command?
+  [ref reset-command-ref
+   nv reset-command-new-value])
+
+(defn reset [ref nv] (make-reset-command ref nv))
+
 (acr/define-record-type ReadCommand
   (make-read-command ref)
   read-command?
@@ -264,7 +272,7 @@
             (println "throwing execution to" (pr-str (k v)))
             (recur (k v) task))
 
-          ;; Read & CAS
+          ;; Read & CAS & Reset
 
           (new-ref-command? m1)
           (let [a (atom (new-ref-command-init m1))]
@@ -283,6 +291,11 @@
            (c (deref (read-command-ref m1)))
            task)
 
+          (reset-command? m1)
+          (let [res (reset! (reset-command-ref m1)
+                            (reset-command-new-value m1))]
+            (recur (c res) task))
+
           ;; Concurrency control
 
           (park-command? m1)
@@ -290,7 +303,8 @@
 
           (unpark-command? m1)
           (do 
-            (println "UNPARKING THAT FUCK")
+            (println "UNPARKING")
+            (println (unpark-command-task m1))
             (make-unpark-status
              c (unpark-command-task m1)
              (unpark-command-value m1)))
@@ -336,6 +350,10 @@
 
       (read-command? m)
       (make-exit-status)
+
+      (reset-command? m)
+      (reset! (reset-command-ref m)
+              (reset-command-new-value m))
 
       (park-command? m)
       (make-exit-status)
@@ -411,6 +429,7 @@
           (when-let [mm (block-task!
                          task
                          (park-status-continuation res))]
+            (println "PARK " (pr-str task))
             ;; is this going to overflow the stack??
             (run-many-to-many mm task))
 
@@ -606,12 +625,3 @@
      (m/return nv)
      ;; maybe should backoff?
      (swapm ref cont))))
-
-(defn reset
-  [ref nv]
-  (m/monadic
-   [ov (read ref)]
-   [succ (cas ref ov nv)]
-   (if succ
-     (m/return nv)
-     (reset ref nv))))
