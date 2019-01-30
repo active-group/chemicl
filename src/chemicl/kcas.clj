@@ -5,54 +5,58 @@
    [chemicl.refs :as refs]
    [active.clojure.monad :as m]))
 
-(defmonadic cas-all-to-sentinel [cs sentinel]
-  ;; CAS all cs to a given sentinel value
-  ;; return false on interference
-  (conc/print "cas all to sent" (pr-str cs))
+(defmonadic cas-all-to-sentinel-counting [cs sentinel counter]
   (if (empty? cs)
-    (m/return true)
+    (m/return counter)
     (m/monadic
      (let [[r ov _] (first cs)])
      [succ (refs/cas r ov sentinel)]
      (if succ
-       (cas-all-to-sentinel (rest cs) sentinel)
-       (m/return false)))))
+       (cas-all-to-sentinel-counting
+        (rest cs)
+        sentinel
+        (inc counter))
+       ;; else
+       (m/return counter)))))
 
-(defmonadic rollback-cases-from-sentinel [cs sentinel]
+(defmonadic cas-all-to-sentinel [cs sentinel]
+  ;; CAS all cs to a given sentinel value
+  ;; return the number of successful cases
+  (cas-all-to-sentinel-counting cs sentinel 0))
+
+(defmonadic rollback-cases-from-sentinel [cs sentinel until-idx]
+  (conc/print "rolling back for sentinel" (pr-str sentinel))
+  (conc/print (str "---> " until-idx " <---"))
   ;; This is too wasteful
   ;; We don't need n CASes but only n normal writes
   ;; The kcas-to-sentinel has shielded us from interference already
-  (if (empty? cs)
-    (m/return nil)
-    (m/monadic
-     (let [[r ov _] (first cs)])
-     [succ (refs/cas r sentinel ov)]
-     (if succ
-       (rollback-cases-from-sentinel cs sentinel)
-       ;; else done
-       (m/return nil)))))
+  (m/sequ_ (mapv (fn [[r ov _]]
+                   (refs/reset r ov)) (take until-idx cs)))
+  (m/return true))
 
 (defmonadic kcas-to-sentinel [cs sentinel]
-  [succ (cas-all-to-sentinel cs sentinel)]
-  (if succ
+  [nsucc (cas-all-to-sentinel cs sentinel)]
+  (conc/print (str ":::" nsucc " : " (count cs)))
+  (if (= nsucc (count cs))
     (m/return true)
     ;; else rollback
-    (rollback-cases-from-sentinel cs sentinel)))
+    (m/monadic
+     (rollback-cases-from-sentinel cs sentinel nsucc)
+     (m/return false))))
 
 (defmonadic kcas-from-sentinel [cs sentinel]
-  ;; This is too wasteful
-  ;; We don't need n CASes but only n normal writes
+  ;; FIXME: This is possibly too wasteful
+  ;; We don't need n atomic resets but only n normal writes
   ;; The kcas-to-sentinel has shielded us from interference already
-  (if (empty? cs)
-    (m/return true)
-    (m/monadic
-     (let [[r _ nv] (first cs)])
-     [succ (refs/cas r sentinel nv)]
-     (if succ
-       (kcas-from-sentinel (rest cs) sentinel)
-       (m/return false)))))
+  ;; We want something like vreset! on volatiles
+  ;; which is not directly supported on atoms
+  (m/sequ_ (mapv (fn [[r _ nv]]
+                  (refs/reset r nv)) cs))
+  (m/return true))
 
 (defmonadic kcas [cs]
+  ;; maybe rand is too expensive
+  ;; we should at least precompute it for each lightweight thread
   (let [sentinel (rand)])
   [succ-1 (kcas-to-sentinel cs sentinel)]
   (if succ-1

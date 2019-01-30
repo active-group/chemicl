@@ -22,6 +22,9 @@
 (defmonadic cas [refref ov nv]
   (conc/cas refref ov nv))
 
+(defmonadic reset [refref nv]
+  (conc/reset refref nv))
+
 ;; the new refs api
 
 (defn add-offer [refref offer-ref]
