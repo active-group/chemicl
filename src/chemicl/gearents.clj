@@ -296,17 +296,14 @@
   (let [r (read-ref rea)
         k (read-k rea)])
   [v (refs/read r)]
-  (let [v-data (refs/ref-data v)])
-  (try-react k v-data rx oref))
+  (try-react k v rx oref))
 
 (defmonadic try-react-upd [rea a rx oref]
   (let [r (upd-ref rea)
         f (upd-fn rea)
         k (upd-k rea)])
   [ov (refs/read r)]
-  (let [ov-data (refs/ref-data ov)
-        ov-offers (refs/ref-offers ov)
-        res (f [ov-data a])])
+  (let [res (f [ov a])])
 
   ;; res might be a monadic program
   [resres (maybe-unwrap-monadic res)]
@@ -314,10 +311,10 @@
   (if resres
     ;; record cas
     (m/monadic
-     (let [[nv-data retv] resres
-           nv (refs/make-ref nv-data ov-offers)])
+     (let [[nv retv] resres])
      (try-react k retv (-> rx
-                           (rx-data/add-cas [r ov nv])
+                           (rx-data/add-cas
+                            [(refs/ref-data-ref r) ov nv])
                            (rx-data/add-action
                             (refs/rescind-offers r))) oref))
     ;; else wait on ref by placing offer there and block
@@ -470,118 +467,3 @@
   ;; add commit continuation
   (let [reagent (reagent-fn (make-commit))])
   (without-offer reagent a))
-
-
-;; -----------------------------------------------
-;; playground
-
-(defn treiber-push [ts]
-  (upd ts
-       (fn [[ov retv]]
-         [(conj ov retv) nil])))
-
-(defn treiber-pop [ts]
-  (upd ts
-       (fn [[ov retv]]
-         (cond
-           (empty? ov)
-           nil ;; block
-
-           :else
-           [(rest ov) (first ov)]))))
-
-(defn pop-either [ts-1 ts-2]
-  (choose
-   (treiber-pop ts-1)
-   (treiber-pop ts-2)))
-
-
-(def ts-1 (atom (refs/make-ref nil [])))
-(def ts-2 (atom (refs/make-ref nil [])))
-
-(defmonadic poperoonies [ts]
-  (conc/print "---- begin")
-  [res (react! (treiber-pop ts) :whatever)]
-  (conc/print "popper got: " (pr-str res)))
-
-(defmonadic pusheroonies [ts v]
-  (conc/print "---- begin")
-  [res (react! (treiber-push ts) v)]
-  (conc/print "pushher got: " (pr-str res)))
-
-(defmonadic moveroonies [ts-1 ts-2]
-  (conc/print "--- begin")
-  [res (react! (>>> (treiber-pop ts-1)
-                    (treiber-push ts-2)) :whatever)]
-  (conc/print "mover got: " (pr-str res)))
-
-(defmonadic popeitheroonies [ts-1 ts-2]
-  (conc/print "----")
-  [res (react! (pop-either ts-1 ts-2) :yea)]
-  (conc/print "either got: " (pr-str res)))
-
-(defmonadic pusheitheroonies [ts-1 ts-2]
-  (conc/print "----")
-  [res (react! (choose
-                (upd ts-1
-                     (fn [[ov retv]]
-                       (if ov
-                         ;; full
-                         nil ;; block
-                         ;; empty
-                         [retv nil])))
-                (upd ts-2
-                     (fn [[ov retv]]
-                       (if ov
-                         ;; full
-                         nil ;; block
-                         ;; empty
-                         [retv nil])))) :yea)]
-  (conc/print "push either got: " (pr-str res)))
-
-(defmonadic takeeither [ts-1 ts-2]
-  (conc/print "---- taking")
-  [res (react! (choose
-                (upd ts-1
-                     (fn [[ov retv]]
-                       (if ov
-                         ;; full
-                         [nil ov]
-                         ;; empty
-                         nil ;; block
-                         )))
-                (upd ts-2
-                     (fn [[ov retv]]
-                       (if ov
-                         ;; full
-                         [nil ov]
-                         ;; empty
-                         nil ;; block
-                         )))) :whataever)]
-  (conc/print "take either got: " (pr-str res)))
-
-#_(conc/run-many-to-many (pusheroonies ts-1 123123))
-#_(conc/run-many-to-many (pusheroonies ts-2 :yooo))
-#_(conc/run-many-to-many (poperoonies ts-1))
-#_(conc/run-many-to-many (moveroonies ts-1 ts-2))
-#_(conc/run-many-to-many (popeitheroonies ts-1 ts-2))
-#_(conc/run-many-to-many (pusheitheroonies ts-1 ts-2))
-#_(conc/run-many-to-many (takeeither ts-1 ts-2))
-
-(defmonadic return-test []
-  (conc/print "---- begin")
-  [res (react! (return 123) :whatever)]
-  (conc/print "got: " (pr-str res)))
-
-(conc/run-many-to-many (return-test))
-
-(defn printref [r]
-  (println (pr-str @r)))
-
-(printref ts-1)
-(printref ts-2)
-
-
-
-
-

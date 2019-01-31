@@ -14,71 +14,102 @@
 ;; ----------------------
 
 (deftest update-t
-  (let [result-res (atom nil)
-        ts (atom (refs/make-ref 1337 []))
-        rea (rea/upd ts
-                     (fn [[ov retv]]
-                       [(inc ov) (dec retv)]))]
+  (let [res-res (atom nil)
+        mem-res (atom nil)]
+
+    ;; run
     (conc/run-many-to-many
      (m/monadic
-      [res (rea/react! rea 23)]
-      (let [_ (reset! result-res res)])
+      [ts (refs/new-ref 1337)]
+
+      [res (rea/react!
+            (rea/upd ts
+                     (fn [[ov retv]]
+                       [(inc ov) (dec retv)])) 23)]
+
+      [ts-val (refs/read ts)]
+      (let [_ (reset! res-res res)
+            _ (reset! mem-res ts-val)])
       (conc/print "done")))
+
+    ;; wait
     (Thread/sleep 20)
-    (is (= @result-res 22))
-    (is (= (refs/ref-data @ts) 1338))))
+
+    ;; check
+    (is (= @res-res 22))
+    (is (= @mem-res 1338))))
 
 (deftest update-monadic-t
-  (let [result-res (atom nil)
-        ts (atom (refs/make-ref 1337 []))
-        rea (rea/upd ts
-                     (fn [[ov retv]]
-                       (m/return
-                        [(inc ov) (dec retv)])))]
+  (let [res-res (atom nil)
+        mem-res (atom nil)]
+
+    ;; run
     (conc/run-many-to-many
      (m/monadic
-      [res (rea/react! rea 23)]
-      (let [_ (reset! result-res res)])
+      [ts (refs/new-ref 1337)]
+
+      [res (rea/react!
+            (rea/upd ts
+                     (fn [[ov retv]]
+                       (m/return
+                        [(inc ov) (dec retv)]))) 23)]
+
+      [ts-val (refs/read ts)]
+      (let [_ (reset! res-res res)
+            _ (reset! mem-res ts-val)])
       (conc/print "done")))
+
+    ;; wait
     (Thread/sleep 20)
-    (is (= @result-res 22))
-    (is (= (refs/ref-data @ts) 1338))))
+
+    ;; check
+    (is (= @res-res 22))
+    (is (= @mem-res 1338))))
 
 (deftest update-block-t
   (let [starter-res (atom :nothing)
         blocker-res (atom :nothing)
-        ts (atom (refs/make-ref :nobody-was-here []))
-        blocking-upd (rea/upd ts
-                              (fn [[ov retv]]
-                                (when (= ov :starter-was-here)
-                                  [:blocker-was-here :blocker-res])))
-        other-upd (rea/upd ts
-                           (fn [[ov retv]]
-                             [:starter-was-here :starter-res]))]
+        ts-atom (atom nil)
+        blocking-upd (fn [ts] (rea/upd ts
+                                       (fn [[ov retv]]
+                                         (when (= ov :starter-was-here)
+                                           [:blocker-was-here :blocker-res]))))
+        other-upd (fn [ts] (rea/upd ts
+                                    (fn [[ov retv]]
+                                      [:starter-was-here :starter-res])))]
+
+    ;; Run initializer
+    (conc/run-many-to-many
+     (m/monadic
+      [ts (refs/new-ref :nobody-was-here)]
+      (let [_ (reset! ts-atom ts)])
+      (m/return nil)))
+
+    (Thread/sleep 20)
 
     ;; Run blocker
     (conc/run-many-to-many
      (m/monadic
-      [res (rea/react! blocking-upd nil)]
+      [res (rea/react! (blocking-upd @ts-atom) nil)]
       (let [_ (reset! blocker-res res)])
       (conc/print "blocker done")))
 
     ;; Check that blocker was not run yet
     (Thread/sleep 20)
     (is (= @blocker-res :nothing))
-    (is (= (refs/ref-data @ts) :nobody-was-here))
+    (is (= @(refs/ref-data-ref @ts-atom) :nobody-was-here))
 
     ;; Run starter
     (conc/run-many-to-many
      (m/monadic
-      [res (rea/react! other-upd nil)]
+      [res (rea/react! (other-upd @ts-atom) nil)]
       (let [_ (reset! starter-res res)])
       (conc/print "starter done"))) 
 
     ;; Check that blocking upd succeeded
     (Thread/sleep 20)
     (is (= @blocker-res :blocker-res))
-    (is (= (refs/ref-data @ts) :blocker-was-here))
+    (is (= @(refs/ref-data-ref @ts-atom) :blocker-was-here))
 
     ;; Check that starter upd succeeded
     (is (= @starter-res :starter-res))))
@@ -92,32 +123,36 @@
   (let [res-1 (atom nil)
         res-2 (atom nil)
 
-        ;; FIXME: this makes too many assumptions about the
-        ;; internal structure of message queues and endpoints
-        mq1 (atom [])
-        mq2 (atom [])
-
-        ep-1 (channels/make-endpoint mq1 mq2)
-        ep-2 (channels/make-endpoint mq2 mq1)
+        ep-1-atom (atom nil)
+        ep-2-atom (atom nil)
 
         swapper (fn [ep v res-atom]
                   (m/monadic
                    [res (rea/react! (rea/swap ep) v)]
                    (let [_ (reset! res-atom res)])
                    (conc/print "done" (pr-str res))))
-
-        swap-1 (swapper ep-1 :from-1 res-1)
-        swap-2 (swapper ep-2 :from-2 res-2)
         ]
 
+    ;; Run initializer
+    (conc/run-many-to-many
+     (m/monadic
+      [[ep-1 ep-2] (channels/new-channel)]
+      (let [_ (reset! ep-1-atom ep-1)])
+      (let [_ (reset! ep-2-atom ep-2)])
+      (m/return nil)))
+
+    (Thread/sleep 20)
+
     ;; Run swap-1
-    (conc/run-many-to-many swap-1)
+    (conc/run-many-to-many
+     (swapper @ep-1-atom :from-1 res-1))
 
     ;; Let swap-1 dangle for a while
     (Thread/sleep 100)
 
     ;; Run swap-2
-    (conc/run-many-to-many swap-2)
+    (conc/run-many-to-many
+     (swapper @ep-2-atom :from-2 res-2))
 
     ;; Wait
     (Thread/sleep 20)
@@ -129,21 +164,18 @@
 
 
 (deftest swap-with-upd-continuation-t
-  (let [res-1 (atom nil)
-        res-2 (atom nil)
+  (let [res-res-1 (atom nil)
+        res-res-2 (atom nil)
+        mem-res-1 (atom nil)
+        mem-res-2 (atom nil)
 
-        ref-1 (atom (refs/make-ref :nothing []))
-        ref-2 (atom (refs/make-ref :nothing []))
+        ep-1-atom (atom nil)
+        ep-2-atom (atom nil)
 
-        ;; FIXME: this makes too many assumptions about the
-        ;; internal structure of message queues and endpoints
-        mq1 (atom [])
-        mq2 (atom [])
+        ref-1-atom (atom nil)
+        ref-2-atom (atom nil)
 
-        ep-1 (channels/make-endpoint mq1 mq2)
-        ep-2 (channels/make-endpoint mq2 mq1)
-
-        swapper (fn [ep v res-atom r]
+        swapper (fn [ep v res-res-atom mem-res-atom r]
                   (m/monadic
                    [res (rea/react! (rea/>>>
                                      (rea/swap ep)
@@ -151,32 +183,49 @@
                                                   ;; store input at ref 
                                                   [(+ a 100)
                                                    (+ a 1000)]))) v)]
-                   (let [_ (reset! res-atom res)])
+                   (let [_ (reset! res-res-atom res)])
+                   [mem (refs/read r)]
+                   (let [_ (reset! mem-res-atom mem)])
                    (conc/print "done" (pr-str res))))
-
-        swap-1 (swapper ep-1 1 res-1 ref-1)
-        swap-2 (swapper ep-2 2 res-2 ref-2)
         ]
 
+    ;; Run initializer
+    (conc/run-many-to-many
+     (m/monadic
+      [[ep-1 ep-2] (channels/new-channel)]
+      (let [_ (reset! ep-1-atom ep-1)])
+      (let [_ (reset! ep-2-atom ep-2)])
+
+      [ref-1 (refs/new-ref :nothing)]
+      [ref-2 (refs/new-ref :nothing)]
+      (let [_ (reset! ref-1-atom ref-1)])
+      (let [_ (reset! ref-2-atom ref-2)])
+
+      (m/return nil)))
+
+    (Thread/sleep 20)
+
     ;; Run swap-1
-    (conc/run-many-to-many swap-1)
+    (conc/run-many-to-many
+     (swapper @ep-1-atom 1 res-res-1 mem-res-1 @ref-1-atom))
 
     ;; Let swap-1 dangle for a while
     (Thread/sleep 100)
 
     ;; Run swap-2
-    (conc/run-many-to-many swap-2)
+    (conc/run-many-to-many
+     (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
 
     ;; Wait
     (Thread/sleep 20)
 
     ;; Check results
-    (is (= @res-1 1002)) ;; 2 (swap) + 1000 (upd)
-    (is (= @res-2 1001)) ;; 1 (swap) + 1000 (upd)
+    (is (= @res-res-1 1002)) ;; 2 (swap) + 1000 (upd)
+    (is (= @res-res-2 1001)) ;; 1 (swap) + 1000 (upd)
 
     ;; Check refs
-    (is (= (refs/ref-data @ref-1) 102))
-    (is (= (refs/ref-data @ref-2) 101))
+    (is (= @mem-res-1 102))
+    (is (= @mem-res-2 101))
     ))
 
 
@@ -185,25 +234,27 @@
 ;; ----------------------
 
 (deftest cas-t
-  (let [res (atom nil)
-        ref (atom (refs/make-ref :nothing []))
-        rea (rea/cas ref :nothing :something)]
+  (let [res-res (atom nil)
+        mem-res (atom nil)]
 
     ;; run cas reagent
     (conc/run-many-to-many
      (m/monadic
-      [out (rea/react! rea nil)]
-      (let [_ (reset! res out)])
+      [r (refs/new-ref :nothing)]
+      [out (rea/react! (rea/cas r :nothing :something) nil)]
+      (let [_ (reset! res-res out)])
+      [mem (refs/read r)]
+      (let [_ (reset! mem-res mem)])
       (conc/print "done")))
 
     ;; wait
     (Thread/sleep 20)
 
     ;; Check ref
-    (is (= (refs/ref-data @ref) :something))
+    (is (= @mem-res :something))
 
     ;; Check result
-    (is (= nil @res))
+    (is (= nil @res-res))
     ))
 
 
@@ -212,22 +263,27 @@
 ;; ----------------------
 
 (deftest read-t
-  (let [res (atom nil)
-        ref (atom (refs/make-ref :bounty []))
-        rea (rea/read ref)]
+  (let [res-res (atom nil)
+        mem-res (atom nil)]
 
     ;; run read reagent
     (conc/run-many-to-many
      (m/monadic
-      [out (rea/react! rea nil)]
-      (let [_ (reset! res out)])
+      [r (refs/new-ref :nothing)]
+      [out (rea/react! (rea/read r) nil)]
+      (let [_ (reset! res-res out)])
+      [mem (refs/read r)]
+      (let [_ (reset! mem-res mem)])
       (conc/print "done")))
 
     ;; wait
     (Thread/sleep 20)
 
+    ;; Check ref
+    (is (= :nothing @mem-res))
+
     ;; Check result
-    (is (= :bounty @res))
+    (is (= :nothing @res-res))
     ))
 
 
@@ -312,12 +368,21 @@
         res-3-1 (atom :nothing)
         res-3-4 (atom :nothing)
 
-        ref (atom (refs/make-ref :bounty []))
+        ref (atom nil)
+
+        ;; initialize
+        _ (conc/run-many-to-many
+           (m/monadic
+            [r (refs/new-ref :bounty)]
+            (let [_ (reset! ref r)])
+            (m/return nil)))
+
+        _ (Thread/sleep 20)
 
         rea-1 (rea/return :one)
         rea-2 (rea/return :two)
-        rea-3 (rea/upd ref (fn [[ov a]] nil))
-        rea-4 (rea/upd ref (fn [[ov a]] nil))
+        rea-3 (rea/upd @ref (fn [[ov a]] nil))
+        rea-4 (rea/upd @ref (fn [[ov a]] nil))
 
         rea-1-2 (rea/choose rea-1 rea-2)
         rea-2-1 (rea/choose rea-2 rea-1)

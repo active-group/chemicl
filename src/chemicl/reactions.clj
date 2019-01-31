@@ -2,7 +2,6 @@
   (:require
    [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.concurrency :as conc]
-   [chemicl.refs :as refs]
    [chemicl.kcas :as kcas]
    [chemicl.reaction-data :as rx-data]
    [active.clojure.monad :as m]))
@@ -17,7 +16,7 @@
 
           (= 1 (count cases))
           (let [[r ov nv] (first cases)]
-            (refs/cas r ov nv))
+            (conc/cas r ov nv))
 
           :else
           (kcas/kcas cases))]

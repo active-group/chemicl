@@ -2,7 +2,6 @@
   (:require
    [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.concurrency :as conc]
-   [chemicl.refs :as refs]
    [active.clojure.monad :as m]))
 
 (defmonadic cas-all-to-sentinel-counting [cs sentinel counter]
@@ -10,7 +9,7 @@
     (m/return counter)
     (m/monadic
      (let [[r ov _] (first cs)])
-     [succ (refs/cas r ov sentinel)]
+     [succ (conc/cas r ov sentinel)]
      (if succ
        (cas-all-to-sentinel-counting
         (rest cs)
@@ -31,7 +30,7 @@
   ;; We don't need n CASes but only n normal writes
   ;; The kcas-to-sentinel has shielded us from interference already
   (m/sequ_ (mapv (fn [[r ov _]]
-                   (refs/reset r ov)) (take until-idx cs)))
+                   (conc/reset r ov)) (take until-idx cs)))
   (m/return true))
 
 (defmonadic kcas-to-sentinel [cs sentinel]
@@ -51,7 +50,7 @@
   ;; We want something like vreset! on volatiles
   ;; which is not directly supported on atoms
   (m/sequ_ (mapv (fn [[r _ nv]]
-                  (refs/reset r nv)) cs))
+                  (conc/reset r nv)) cs))
   (m/return true))
 
 (defmonadic kcas [cs]
