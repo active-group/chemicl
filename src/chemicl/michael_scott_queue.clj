@@ -1,11 +1,8 @@
 (ns chemicl.michael-scott-queue
-  (:require [chemicl.gearents :as rea]
-            [active.clojure.record :as acr]
+  (:require [active.clojure.record :as acr]
             [active.clojure.monad :as m]
             [chemicl.monad :as cm :refer [defmonadic whenm]]
-            [chemicl.concurrency :as conc]
-            [chemicl.channels :as channels]
-            [chemicl.refs :as refs]))
+            [chemicl.concurrency :as conc]))
 
 (acr/define-record-type MSQueue
   (make-ms-queue hd tl)
@@ -24,64 +21,61 @@
 ;; create
 
 (defmonadic create []
-  [next (refs/new-ref nil)]
+  [next (conc/new-ref nil)]
   (let [sentinel (make-node sentinel-value next)])
-  [hd (refs/new-ref sentinel)]
-  [tl (refs/new-ref sentinel)]
+  [hd (conc/new-ref sentinel)]
+  [tl (conc/new-ref sentinel)]
   (m/return
    (make-ms-queue hd tl)))
 
 ;; pop
 
-(defn pop [q]
-  (rea/upd (ms-queue-head q)
-           (fn [[ov a]]
-             (m/monadic
-              (let [next-ptr (node-next ov)])
-              [n (refs/read next-ptr)]
-              (let [ndata (refs/ref-data n)])
-              (if ndata
-                ;; pop: hd points to next, return val
-                (m/return [ndata (node-value ndata)])
-                ;; queue is empty
-                (m/return nil))))))
+(defmonadic try-pop [q]
+  [old-head (conc/read (ms-queue-head q))]
+  [next (conc/read (node-next old-head))]
+  (if next
+    ;; pop: hd points to next, return val
+    (m/monadic
+     [succ
+      (conc/cas (ms-queue-head q) old-head next)]
+     (if succ
+       (m/return (node-value next))
+       (try-pop q)))
+    ;; queue is empty
+    (m/return nil)))
 
 ;; push
 
-(defmonadic find-and-enqueue [n tail-ptr]
+(defmonadic push [q x]
+  ;; create new tail node
+  [nilref (conc/new-ref nil)]
+  (let [new-tail-node (make-node x nilref)])
+  
   ;; get tail node
-  [tail-node-1 (refs/read tail-ptr)]
-
-  ;; unpack
-  (let [tail-node (refs/ref-data tail-node-1)])
+  [tail-node (conc/read (ms-queue-tail q))]
 
   ;; get tail successor
-  [successor-1 (-> tail-node
-                   (node-next)
-                   (refs/read))]
+  [successor-node (conc/read (node-next tail-node))]
 
-  ;; unpack
-  (let [s (refs/ref-data successor-1)])
-
-  (letfn [(fwd-tail [nv]
-            (refs/cas tail-ptr tail-node-1 nv))]
-    (if s
-      ;; true tail not found yet
-      (m/monadic
-       (fwd-tail successor-1)         ;; advance tail-ptr
-       (find-and-enqueue n tail-ptr)) ;; retry
-
-      ;; found true tail -> enqueue
-      (m/return
-       (rea/>>> (rea/cas (node-next tail-node) s n)
-                (rea/post-commit (fn [_]
-                                   (fwd-tail
-                                    (refs/make-ref n [])))))))))
-
-(defn push [q]
-  (rea/computed
-   (fn [a]
-     (m/monadic
-      [r (refs/new-ref nil)]
-      (let [node (make-node a r)])
-      (find-and-enqueue node (ms-queue-tail q))))))
+  (if successor-node
+    ;; true tail lags behind
+    (m/monadic
+     ;; catch up
+     (conc/cas (ms-queue-tail q)
+               tail-node
+               successor-node)
+     ;; and retry
+     (push q x))
+    ;; found true tail
+    (m/monadic
+     [succ (conc/cas (node-next tail-node)
+                     successor-node
+                     new-tail-node)]
+     (if succ
+       ;; try to cas the tail pointer
+       (conc/cas (ms-queue-tail q)
+                 tail-node
+                 new-tail-node)
+       ;; else retry
+       (push q x)
+       ))))

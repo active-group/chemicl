@@ -1,12 +1,8 @@
 (ns chemicl.michael-scott-queue-test
   (:require [chemicl.michael-scott-queue :as msq]
-            [chemicl.gearents :as rea]
             [active.clojure.monad :as m]
             [chemicl.monad :as cm :refer [defmonadic whenm]]
-            [chemicl.refs :as refs]
             [chemicl.concurrency :as conc]
-            [chemicl.channels :as channels]
-            [chemicl.message-queue :as mq]
             [clojure.test :as t :refer [deftest testing is]]))
 
 (deftest push-then-pop-t
@@ -14,10 +10,10 @@
         res-2 (atom nil)
         m (m/monadic
            [q (msq/create)]
-           (rea/react! (msq/push q) 42)
-           (rea/react! (msq/push q) 23)
-           [r1 (rea/react! (msq/pop q) nil)]
-           [r2 (rea/react! (msq/pop q) nil)]
+           (msq/push q 42)
+           (msq/push q 23)
+           [r1 (msq/try-pop q)]
+           [r2 (msq/try-pop q)]
            (let [_ (reset! res-1 r1)])
            (let [_ (reset! res-2 r2)])
            (conc/print "done")
