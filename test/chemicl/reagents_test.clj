@@ -28,6 +28,22 @@
     (is (= @result-res 22))
     (is (= (refs/ref-data @ts) 1338))))
 
+(deftest update-monadic-t
+  (let [result-res (atom nil)
+        ts (atom (refs/make-ref 1337 []))
+        rea (rea/upd ts
+                     (fn [[ov retv]]
+                       (m/return
+                        [(inc ov) (dec retv)])))]
+    (conc/run-many-to-many
+     (m/monadic
+      [res (rea/react! rea 23)]
+      (let [_ (reset! result-res res)])
+      (conc/print "done")))
+    (Thread/sleep 20)
+    (is (= @result-res 22))
+    (is (= (refs/ref-data @ts) 1338))))
+
 (deftest update-block-t
   (let [starter-res (atom :nothing)
         blocker-res (atom :nothing)

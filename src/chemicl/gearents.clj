@@ -279,10 +279,18 @@
   (let [ov-data (refs/ref-data ov)
         ov-offers (refs/ref-offers ov)
         res (f [ov-data a])])
-  (if res
+
+  ;; res might be a monadic program
+  [resres (if (cm/monadic? res)
+            ;; run monadic program res
+            res
+            ;; else return value res
+            (m/return res))]
+
+  (if resres
     ;; record cas
     (m/monadic
-     (let [[nv-data retv] res
+     (let [[nv-data retv] resres
            nv (refs/make-ref nv-data ov-offers)])
      (try-react k retv (-> rx
                            (rx-data/add-cas [r ov nv])

@@ -3,6 +3,10 @@
    [active.clojure.monad :as m]
    [chemicl.concurrency :as conc]))
 
+(defn monadic? [x]
+  (or (m/free-return? x)
+      (m/free-bind? x)))
+
 (defmacro defmonadic
   "like defn but monadic"
   {:style/indent :defn}
