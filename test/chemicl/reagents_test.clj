@@ -255,6 +255,30 @@
 
 
 ;; ----------------------
+;; --- Computed ---------
+;; ----------------------
+
+(deftest computed-t
+  (let [res (atom nil)
+        rea (rea/computed
+             (fn [a]
+               (rea/return (inc a))))]
+
+    ;; run computed reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea 23)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 20)
+
+    ;; Check result
+    (is (= 24 @res))))
+
+
+;; ----------------------
 ;; --- Lift -------------
 ;; ----------------------
 

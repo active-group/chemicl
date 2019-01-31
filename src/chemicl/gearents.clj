@@ -59,6 +59,12 @@
   [v return-value
    k return-k])
 
+(acr/define-record-type Computed
+  (make-computed f k)
+  computed?
+  [f computed-function
+   k computed-k])
+
 (acr/define-record-type Lift
   (make-lift f k)
   lift?
@@ -104,10 +110,17 @@
   (fn [k]
     (make-post-commit f k)))
 
+;; return : a -> Reagent () a
 (defn return [v]
   (fn [k]
     (make-return v k)))
 
+;; computed : (a -> R () b) -> R a b
+(defn computed [f]
+  (fn [k]
+    (make-computed f k)))
+
+;; lift : (a -> b) -> Reagent a b
 (defn lift [f]
   (fn [k]
     (make-lift f k)))
@@ -134,6 +147,9 @@
 
     (return? rea)
     (may-sync? (return-k rea))
+
+    (computed? rea)
+    true ;; can't be sure, true is the safe bet
 
     (lift? rea)
     (may-sync? (lift-k rea))
@@ -184,6 +200,11 @@
      (return-value rea)
      (compose (return-k rea) r))
 
+    (computed? rea)
+    (make-computed
+     (computed-function rea)
+     (compose (computed-k rea) r))
+
     (lift? rea)
     (make-lift
      (lift-function rea)
@@ -193,6 +214,13 @@
 
 (defn compose-n [rea & reas]
   (reduce compose rea reas))
+
+(defn maybe-unwrap-monadic [m]
+  (if (cm/monadic? m)
+    ;; run monadic program res
+    m
+    ;; else return value res
+    (m/return m)))
 
 
 
@@ -281,11 +309,7 @@
         res (f [ov-data a])])
 
   ;; res might be a monadic program
-  [resres (if (cm/monadic? res)
-            ;; run monadic program res
-            res
-            ;; else return value res
-            (m/return res))]
+  [resres (maybe-unwrap-monadic res)]
 
   (if resres
     ;; record cas
@@ -323,6 +347,17 @@
   (let [v (return-value rea)
         k (return-k rea)])
   (try-react k v rx oref))
+
+(defmonadic try-react-computed [rea a rx oref]
+  (let [f (computed-function rea)
+        k (computed-k rea)])
+  (let [res (f a)])
+
+  ;; res might be a monadic program
+  [resres (maybe-unwrap-monadic res)]
+
+  ;; resres is a function k -> reagent
+  (try-react (resres k) nil rx oref))
 
 (defmonadic try-react-lift [rea a rx oref]
   (let [f (lift-function rea)
@@ -370,6 +405,9 @@
 
     (return? rea)
     (try-react-return rea a rx oref)
+
+    (computed? rea)
+    (try-react-computed rea a rx oref)
 
     (lift? rea)
     (try-react-lift rea a rx oref)
