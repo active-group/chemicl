@@ -435,7 +435,7 @@
 
 (declare with-offer)
 
-(defmonadic with-offer-continue [reagent a oref]
+(defmonadic with-offer-continue [reagent a oref backoff-counter]
   [ores (offers/rescind oref)]
   (if ores
     ;; got an answer to return
@@ -443,9 +443,9 @@
      (m/return ores))
     ;; else retry
     (m/monadic
-     (with-offer reagent a))))
+     (with-offer reagent a backoff-counter))))
 
-(defmonadic with-offer [reagent a]
+(defmonadic with-offer [reagent a backoff-counter]
   [oref (offers/new-offer)]
   [res (try-react reagent a (rx-data/empty-rx) oref)]
   (cond
@@ -453,27 +453,30 @@
     (m/monadic
      (offers/wait oref)
      ;; when continued:
-     (with-offer-continue reagent a oref))
+     (with-offer-continue reagent a oref backoff-counter))
 
     (= :retry res)
     ;; backoff.once
-    (with-offer-continue reagent a oref)
+    (m/monadic
+     (conc/timeout-with-counter backoff-counter)
+     (with-offer-continue reagent a oref (inc backoff-counter)))
 
     :else
     (m/return res)))
 
-(defmonadic without-offer [reagent a]
+(defmonadic without-offer [reagent a backoff-counter]
   [res (try-react reagent a (rx-data/empty-rx) nil)]
   (cond
     (= :block res)
     (m/monadic
-     (with-offer reagent a))
+     (with-offer reagent a backoff-counter))
 
     (= :retry res)
     (m/monadic
+     (conc/timeout-with-counter backoff-counter)
      (if (may-sync? reagent)
-       (with-offer reagent a)
-       (without-offer reagent a)))
+       (with-offer reagent a (inc backoff-counter))
+       (without-offer reagent a (inc backoff-counter))))
 
     :else
     (m/return res)))
@@ -481,4 +484,4 @@
 (defmonadic react! [reagent-fn a]
   ;; add commit continuation
   (let [reagent (reagent-fn (make-commit))])
-  (without-offer reagent a))
+  (without-offer reagent a 0))
