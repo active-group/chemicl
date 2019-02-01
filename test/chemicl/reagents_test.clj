@@ -217,7 +217,7 @@
      (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
 
     ;; Wait
-    (Thread/sleep 20)
+    (Thread/sleep 50)
 
     ;; Check results
     (is (= @res-res-1 1002)) ;; 2 (swap) + 1000 (upd)
