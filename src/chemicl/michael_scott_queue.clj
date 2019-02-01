@@ -2,7 +2,8 @@
   (:require [active.clojure.record :as acr]
             [active.clojure.monad :as m]
             [chemicl.monad :as cm :refer [defmonadic whenm]]
-            [chemicl.concurrency :as conc]))
+            [chemicl.concurrency :as conc]
+            [chemicl.backoff :as backoff]))
 
 (acr/define-record-type MSQueue
   (make-ms-queue hd tl)
@@ -31,57 +32,57 @@
 ;; pop
 
 (defmonadic try-pop [q]
-  [old-head (conc/read (ms-queue-head q))]
-  [next (conc/read (node-next old-head))]
-  (if next
-    ;; pop: hd points to next, return val
-    (m/monadic
-     [succ
-      (conc/cas (ms-queue-head q) old-head next)]
-     (if succ
-       (m/return (node-value next))
-
-       ;; FIXME: backoff
-       (try-pop q)))
-    ;; queue is empty
-    (m/return nil)))
+  (backoff/with-exp-backoff
+   [old-head (conc/read (ms-queue-head q))]
+   [next (conc/read (node-next old-head))]
+   (if next
+     ;; pop: hd points to next, return val
+     (m/monadic
+      [succ (conc/cas (ms-queue-head q) old-head next)]
+      (if succ
+        (m/return (backoff/done (node-value next)))
+        (m/return (backoff/retry-backoff))))
+     ;; queue is empty
+     (m/return (backoff/done nil)))))
 
 ;; push
 
 (defmonadic push [q x]
-  ;; create new tail node
-  [nilref (conc/new-ref nil)]
-  (let [new-tail-node (make-node x nilref)])
-  
-  ;; get tail node
-  [tail-node (conc/read (ms-queue-tail q))]
+  (backoff/with-exp-backoff
+    ;; create new tail node
+    [nilref (conc/new-ref nil)]
+    (let [new-tail-node (make-node x nilref)])
+    
+    ;; get tail node
+    [tail-node (conc/read (ms-queue-tail q))]
 
-  ;; get tail successor
-  [successor-node (conc/read (node-next tail-node))]
+    ;; get tail successor
+    [successor-node (conc/read (node-next tail-node))]
 
-  (if successor-node
-    ;; true tail lags behind
-    (m/monadic
-     ;; catch up
-     (conc/cas (ms-queue-tail q)
-               tail-node
-               successor-node)
-     ;; and retry
-     (push q x))
-    ;; found true tail
-    (m/monadic
-     [succ (conc/cas (node-next tail-node)
-                     successor-node
-                     new-tail-node)]
-     (if succ
-       ;; try to cas the tail pointer
+    (if successor-node
+      ;; true tail lags behind
+      (m/monadic
+       ;; catch up
        (conc/cas (ms-queue-tail q)
                  tail-node
-                 new-tail-node)
-       ;; else retry
-       ;; FIXME: backoff
-       (push q x)
-       ))))
+                 successor-node)
+       ;; and retry
+       (push q x))
+      ;; found true tail
+      (m/monadic
+       [succ (conc/cas (node-next tail-node)
+                       successor-node
+                       new-tail-node)]
+       (if succ
+         (m/monadic
+          ;; try to cas the tail pointer
+          (conc/cas (ms-queue-tail q)
+                    tail-node
+                    new-tail-node)
+          (m/return (backoff/done nil)))
+         ;; else retry
+         (m/return (backoff/retry-backoff))
+         )))))
 
 ;; cursor
 
@@ -98,19 +99,20 @@
 ;; clean
 
 (defmonadic clean-until [q pred]
-  [sentinel-node (conc/read (ms-queue-head q))]
-  [head-node (conc/read (node-next sentinel-node))]
-  (whenm head-node
-    (let [v (node-value head-node)])
-    (if-not (pred v)
-      ;; cas away and continue
+  (backoff/with-exp-backoff
+    [sentinel-node (conc/read (ms-queue-head q))]
+    [head-node (conc/read (node-next sentinel-node))]
+    (if head-node
       (m/monadic
-       [succ (conc/cas (ms-queue-head q) sentinel-node head-node)]
-       (if succ
-         ;; FIXME: backoff reset
-         (clean-until q pred)
-         ;; FIXME: backoff once
-         (clean-until q pred)))
-      ;; else done
-      (m/return nil)
-      )))
+       (let [v (node-value head-node)])
+       (if-not (pred v)
+         ;; cas away and continue
+         (m/monadic
+          [succ (conc/cas (ms-queue-head q) sentinel-node head-node)]
+          (if succ
+            (m/return (backoff/retry-reset))
+            (m/return (backoff/retry-backoff))))
+         ;; else done
+         (m/return (backoff/done nil))))
+      ;; else no nodes
+      (m/return (backoff/done nil)))))
