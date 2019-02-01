@@ -64,14 +64,12 @@
 ;; --- Task abstraction ---------
 
 (acr/define-record-type Task
-  (make-task tl bo)
+  (make-task tl)
   task?
-  [(tl task-lock task-lock-lens)
-   (bo task-backoff task-backoff-lens)])
+  [(tl task-lock task-lock-lens)])
 
 (defn new-task! []
-  (make-task (new-task-lock!)
-             0))
+  (make-task (new-task-lock!)))
 
 (defn signal-task! [t v]
   (signal-on-task-lock!
@@ -81,11 +79,6 @@
   (block-on-task-lock!
    (task-lock t)
    cont))
-
-(defn set-backoff [t v]
-  (lens/shove t task-backoff-lens v))
-
-
 
 
 
@@ -177,7 +170,7 @@
 
 (defn exit [] (make-exit-command))
 
-;; Backoff
+;; Timeout
 
 (acr/define-record-type TimeoutCommand
   (make-timeout-command msec)
@@ -185,20 +178,6 @@
   [msec timeout-command-msec])
 
 (defn timeout [msec] (make-timeout-command msec))
-
-(acr/define-record-type ResetBackoffCommand
-  (make-reset-backoff-command)
-  reset-backoff-command?
-  [])
-
-(defn reset-backoff [] (make-reset-backoff-command))
-
-(acr/define-record-type BackoffOnceCommand
-  (make-backoff-once-command)
-  backoff-once-command?
-  [])
-
-(defn backoff-once [] (make-backoff-once-command))
 
 ;; Debugging only
 
@@ -223,12 +202,6 @@
   [c unpark-status-continuation
    unpark-task unpark-status-unpark-task
    value unpark-status-value])
-
-(acr/define-record-type BackoffStatus
-  (make-backoff-status c counter)
-  backoff-status?
-  [c backoff-status-continuation
-   counter backoff-status-counter])
 
 (acr/define-record-type TimeoutStatus
   (make-timeout-status c timeout)
@@ -318,17 +291,11 @@
           (exit-command? m1)
           (make-exit-status)
 
-          ;; Backoff
+          ;; Timeout
 
           (timeout-command? m1)
           (make-timeout-status
            c (timeout-command-msec m1))
-
-          (reset-backoff-command? m1)
-          (recur (c nil) (set-backoff task 0))
-
-          (backoff-once-command? m1)
-          (make-backoff-status c (task-backoff task))
 
           ;; Debugging only
 
@@ -397,21 +364,6 @@
       )))
 
 
-;; --- Spin and Backoff ---------
-
-(defn spin-until! [pred! counter k]
-  (if (pred!)
-    (k)
-    (x/run-after (* (max counter 14) 200) ;; todo: exponential
-                 (fn []
-                   (spin-until! pred! (inc counter) k)
-                   ))))
-
-(defn backoff-once! [counter k]
-  (x/run-after (* (max counter 14) 200)
-               (fn [] (k))))
-
-
 ;; --- Outside runner ---------
 
 (declare run-many-to-many)
@@ -459,23 +411,12 @@
             (run-many-to-many (cont new-task) task))
 
 
-          ;; BACKOFF
+          ;; TIMEOUT
 
           (timeout-status? res)
           (let [cont (timeout-status-continuation res)
                 msec (timeout-status-timeout res)]
             (run-many-to-many-after (cont nil) task msec))
-
-          (backoff-status? res)
-          (let [counter (backoff-status-counter res)
-                cont (backoff-status-continuation res)
-                k #(run-many-to-many
-                    (cont nil)
-                    (lens/shove task
-                                task-backoff-lens
-                                (inc counter)))]
-              ;; backoff once
-              (backoff-once! counter k))
 
 
           ;; QUITTING
@@ -494,110 +435,9 @@
 (defn run-many-to-many-after [m task delay]
   (run-mn m task (partial x/run-after delay)))
 
-#_(defn run-many-to-one
-
-  ([m] (run-many-to-one m (uuid)))
-
-  ([m tid]
-   (loop [m m
-          tid tid
-          threads {} ;; tid -> m
-          parked {}] ;; tid -> cont
-     (let [res (run-cont m tid)]
-       (cond
-
-         ;; PARKING
-
-         ;; (park-status? res)
-         ;; (let [[next-tid next-m] (first threads)]
-         ;;   (recur
-         ;;    next-m next-tid
-         ;;    (dissoc threads next-tid)
-         ;;    (assoc parked tid
-         ;;           (park-status-continuation res))))
-
-         ;; (unpark-status? res)
-         ;; (let [cont (unpark-status-continuation res)
-         ;;       utask (unpark-status-unpark-task res)
-         ;;       uvalue (unpark-status-value res)]
-         ;;   ;; Unpark the parked task
-         ;;   (let [cont (get parked utask)
-         ;;         new-threads (assoc threads utask (cont uvalue))
-         ;;         new-parked (dissoc parked utask)]
-         ;;     (recur (cont uvalue) utask))
-
-         ;;   ;; Continue the unparking task
-         ;;   (when cont
-         ;;     (run-many-to-many (cont true) task)))
-
-
-         ;; FORKING
-
-         (fork-status? res)
-         (let [cont (fork-status-continuation res)
-               fm (fork-status-monad res)
-               new-tid (uuid)]
-           ;; Run the forked task, put cc into threads map
-           (recur fm new-tid
-                  (assoc threads tid (cont new-tid))
-                  parked))
-
-
-         ;; BACKOFF
-
-         ;; (timeout-status? res)
-         ;; (let [cont (timeout-status-continuation res)
-         ;;       msec (timeout-status-timeout res)]
-         ;;   (run-many-to-many-after (cont nil) task msec))
-
-         ;; (backoff-status? res)
-         ;; (let [counter (backoff-status-counter res)
-         ;;       cont (backoff-status-continuation res)
-         ;;       k #(run-many-to-many
-         ;;           (cont nil)
-         ;;           (lens/shove task
-         ;;                       task-backoff-lens
-         ;;                       (inc counter)))]
-         ;;   ;; backoff once
-         ;;   (backoff-once! counter k))
-
-
-         ;; QUITTING
-
-         (exit-status? res)
-         (if-let [[next-tid next-m] (first threads)]
-           (recur next-m next-tid
-                  (dissoc threads next-tid)
-                  parked)
-           ;; else
-           :exit
-           ))))))
-
 
 
 ;; Combinations
-
-(defn backoff-until
-  ([pred!]
-   (backoff-until pred! 1))
-
-  ([pred! i]
-   (m/monadic
-    (if (pred!)
-      ;; done
-      (m/return true)
-      ;; else
-      (m/monadic
-       ;; wait
-       (print "waiting")
-       (let [seed (.getId (Thread/currentThread))])
-       (let [upper (bit-shift-left
-                    8 (min i 14))
-             r (rand-int upper)])
-       (print (str  "waiting for " (pr-str r)))
-       (timeout r)
-       (backoff-until pred! (inc i))
-       )))))
 
 (defn swap
   [ref f & args]
