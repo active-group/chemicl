@@ -3,7 +3,8 @@
    [chemicl.exec :as x]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
-   [active.clojure.monad :as m]))
+   [active.clojure.monad :as m]
+   [chemicl.monad :refer [defmonadic whenm]]))
 
 (defn uuid [] (str (java.util.UUID/randomUUID)))
 
@@ -465,3 +466,31 @@
      (m/return nv)
      ;; maybe should backoff?
      (swapm ref cont))))
+
+
+;; User-level backoff mechanism
+
+(defn- pow [base exponent]
+  (loop [i exponent
+         res 1]
+    (if (zero? i)
+      res
+      (recur (dec i) (* res base)))))
+
+(defn- maximum-for [counter]
+  (* 10 (pow 2 (min counter 14))))
+
+(defmonadic with-exponential-backoff-counter [c m]
+  [success? m]
+  (if success?
+    (m/return success?)
+    ;; else timeout and retry
+    (m/monadic
+     (timeout (rand-int (maximum-for c)))
+     (with-exponential-backoff-counter (inc c) m))))
+
+(defn with-exponential-backoff [m]
+  (with-exponential-backoff-counter 0 m))
+
+(defn timeout-with-counter [counter]
+  (timeout (rand-int (maximum-for counter))))

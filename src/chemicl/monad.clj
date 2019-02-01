@@ -1,7 +1,6 @@
 (ns chemicl.monad
   (:require
-   [active.clojure.monad :as m]
-   [chemicl.concurrency :as conc]))
+   [active.clojure.monad :as m]))
 
 (defn monadic? [x]
   (or (m/free-return? x)
