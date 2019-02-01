@@ -11,6 +11,7 @@
    [chemicl.refs :as refs]
    [chemicl.reactions :as rx]
    [chemicl.reaction-data :as rx-data]
+   [chemicl.backoff :as backoff]
    [chemicl.monad :as cm :refer [defmonadic whenm]]))
 
 
@@ -450,7 +451,7 @@
     (= :retry res)
     ;; backoff.once
     (m/monadic
-     (conc/timeout-with-counter backoff-counter)
+     (backoff/timeout-with-counter backoff-counter)
      (with-offer-continue reagent a oref (inc backoff-counter)))
 
     :else
@@ -465,7 +466,7 @@
 
     (= :retry res)
     (m/monadic
-     (conc/timeout-with-counter backoff-counter)
+     (backoff/timeout-with-counter backoff-counter)
      (if (may-sync? reagent)
        (with-offer reagent a (inc backoff-counter))
        (without-offer reagent a (inc backoff-counter))))
