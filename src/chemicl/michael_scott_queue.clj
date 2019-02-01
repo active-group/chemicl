@@ -40,6 +40,8 @@
       (conc/cas (ms-queue-head q) old-head next)]
      (if succ
        (m/return (node-value next))
+
+       ;; FIXME: backoff
        (try-pop q)))
     ;; queue is empty
     (m/return nil)))
@@ -77,5 +79,38 @@
                  tail-node
                  new-tail-node)
        ;; else retry
+       ;; FIXME: backoff
        (push q x)
        ))))
+
+;; cursor
+
+(defmonadic cursor [q]
+  [s (conc/read (ms-queue-head q))]
+  (conc/read (node-next s)))
+
+(defn cursor-value [c]
+  (node-value c))
+
+(defn cursor-next [c]
+  (conc/read (node-next c)))
+
+;; clean
+
+(defmonadic clean-until [q pred]
+  [sentinel-node (conc/read (ms-queue-head q))]
+  [head-node (conc/read (node-next sentinel-node))]
+  (whenm head-node
+    (let [v (node-value head-node)])
+    (if-not (pred v)
+      ;; cas away and continue
+      (m/monadic
+       [succ (conc/cas (ms-queue-head q) sentinel-node head-node)]
+       (if succ
+         ;; FIXME: backoff reset
+         (clean-until q pred)
+         ;; FIXME: backoff once
+         (clean-until q pred)))
+      ;; else done
+      (m/return nil)
+      )))

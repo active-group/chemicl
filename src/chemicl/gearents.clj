@@ -244,17 +244,16 @@
   (m/return
    (offers/active? o)))
 
-(defmonadic try-react-swap-from [k a rx oref msgs retry?]
-  (if (empty? msgs)
+(defmonadic try-react-swap-from [k a rx oref cursor retry?]
+  (let [msg (mq/cursor-value cursor)])
+  (if-not msg
     (m/return
      (if retry? :retry :block))
     ;; else not empty
     ;; TODO: check that it is not our own message (compare oref with sender offer)
     ;; ha, caught one
     (m/monadic
-     (let [msg (first msgs)
-
-           sender-a (message-value msg)
+     (let [sender-a (message-value msg)
            sender-rx (message-sender-rx msg)
            sender-k (message-sender-k msg)
            sender-oref (message-sender-offer msg)])
@@ -264,7 +263,25 @@
                               (make-complete-offer sender-oref (make-commit))
                               (make-return sender-a (make-commit))
                               k)])
-     (try-react new-rea a new-rx oref))))
+
+     ;; run combined reagent
+     [res (try-react new-rea a new-rx oref)]
+
+     ;; handle result
+     (cond
+       (= :block res)
+       (m/monadic
+        [next-cursor (mq/cursor-next cursor)]
+        (try-react-swap-from k a rx oref next-cursor retry?))
+
+       (= :retry res)
+       (m/monadic
+        [next-cursor (mq/cursor-next cursor)]
+        (try-react-swap-from k a rx oref next-cursor true))
+
+       :else
+       (m/return res))
+     )))
 
 (defmonadic try-react-swap [rea a rx oref]
   (let [ep (swap-endpoint rea)
@@ -282,11 +299,9 @@
   (mq/clean in message-is-active?)
 
   ;; finally: search for matching messages
-  [mqe (mq/empty? in)]
-  (if-not mqe
-    (m/monadic
-     [msgs (mq/snapshot in)]
-     (try-react-swap-from k a rx oref msgs false))
+  [cursor (mq/cursor in)]
+  (if cursor
+    (try-react-swap-from k a rx oref cursor false)
     ;; else block
     (m/return :block)))
 
