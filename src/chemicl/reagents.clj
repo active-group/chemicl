@@ -215,14 +215,6 @@
 (defn compose-n [rea & reas]
   (reduce compose rea reas))
 
-(defn maybe-unwrap-monadic [m]
-  (if (cm/monadic? m)
-    ;; run monadic program res
-    m
-    ;; else return value res
-    (m/return m)))
-
-
 
 ;; -----------------------------------------------
 
@@ -321,7 +313,7 @@
   (let [res (f [ov a])])
 
   ;; res might be a monadic program
-  [resres (maybe-unwrap-monadic res)]
+  [resres (cm/maybe-unwrap-monadic res)]
 
   (if resres
     ;; record cas
@@ -366,7 +358,7 @@
   (let [res (f a)])
 
   ;; res might be a monadic program
-  [resres (maybe-unwrap-monadic res)]
+  [resres (cm/maybe-unwrap-monadic res)]
 
   ;; resres is a function k -> reagent
   (try-react (resres k) nil rx oref))

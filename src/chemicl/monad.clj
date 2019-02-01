@@ -6,6 +6,13 @@
   (or (m/free-return? x)
       (m/free-bind? x)))
 
+(defn maybe-unwrap-monadic [m]
+  (if (monadic? m)
+    ;; run monadic program res
+    m
+    ;; else return value res
+    (m/return m)))
+
 (defmacro defmonadic
   "like defn but monadic"
   {:style/indent :defn}
