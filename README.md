@@ -1,10 +1,10 @@
-# chemicl
+<img src="https://raw.githubusercontent.com/active-group/chemicl/master/logo.png" width="180">
 
-A Clojure library designed to ... well, that part is up to you.
+A Clojure library for composable concurrency based on Reagents.
 
 ## Usage
 
-FIXME
+## API
 
 ## License
 
