@@ -1,5 +1,5 @@
 (ns chemicl.examples.elimination-stack
-  (:require [chemicl.gearents :as rea]
+  (:require [chemicl.reagents :as rea]
             [active.clojure.monad :as m]
             [chemicl.monad :as cm :refer [defmonadic whenm]]
             [chemicl.concurrency :as conc]
