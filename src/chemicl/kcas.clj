@@ -24,8 +24,8 @@
   (cas-all-to-sentinel-counting cs sentinel 0))
 
 (defmonadic rollback-cases-from-sentinel [cs sentinel until-idx]
-  (conc/print "rolling back for sentinel" (pr-str sentinel))
-  (conc/print (str "---> " until-idx " <---"))
+  #_(conc/print "rolling back for sentinel" (pr-str sentinel))
+  #_(conc/print (str "---> " until-idx " <---"))
   ;; This is too wasteful
   ;; We don't need n CASes but only n normal writes
   ;; The kcas-to-sentinel has shielded us from interference already
@@ -35,7 +35,7 @@
 
 (defmonadic kcas-to-sentinel [cs sentinel]
   [nsucc (cas-all-to-sentinel cs sentinel)]
-  (conc/print (str ":::" nsucc " : " (count cs)))
+  #_(conc/print (str ":::" nsucc " : " (count cs)))
   (if (= nsucc (count cs))
     (m/return true)
     ;; else rollback

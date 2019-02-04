@@ -3,6 +3,7 @@
             [chemicl.kcas :as kcas]
             [chemicl.monad :as cm :refer [defmonadic whenm]]
             [chemicl.concurrency :as conc]
+            [chemicl.concurrency-test-runner :as test-runner]
             [clojure.test :as t :refer [deftest testing is]]))
 
 (deftest kcas-1-t
@@ -96,11 +97,6 @@
     [(map first cas-pairs)
      (map second cas-pairs)]))
 
-(def pair (mk-cas-list-pair! 10))
-(def cs-1 (first pair))
-(def cs-2 (drop 9 (second pair)))
-(drop 8 (mk-cas-list-pair! 10))
-
 ;; FIXME: nondeterministic
 (deftest kcas-interference-2-t
   (let [[cs-1-all cs-2-all] (mk-cas-list-pair! 8)
@@ -135,3 +131,46 @@
     (is (or @succ-1
             @succ-2))
     ))
+
+
+(deftest kcas-interference-3-t
+  ;; run test
+  (is
+   (test-runner/run-with-reducer
+    (m/monadic
+     (conc/print "---")
+     (let [[cs-1 cs-2] (mk-cas-list-pair! 1)])
+
+     ;; return values
+     [succ-1 (conc/new-ref false)]
+     [succ-2 (conc/new-ref false)]
+
+     ;; self
+     [parent (conc/get-current-task)]
+
+     ;; one
+     (conc/fork
+      (m/monadic
+       (test-runner/mark)
+       [succ (kcas/kcas cs-1)]
+       (test-runner/unmark)
+       (conc/reset succ-1 succ)
+       (conc/unpark parent nil)
+       ))
+
+     ;; two
+     (m/monadic
+      (test-runner/mark)
+      [succ (kcas/kcas cs-2)]
+      (test-runner/unmark)
+      (conc/reset succ-2 succ))
+
+     ;; wait for child
+     (conc/park)
+
+     [s1 (conc/read succ-1)]
+     [s2 (conc/read succ-2)]
+
+     (m/return
+      (or s1 s2)))
+    #(and %1 %2) true)))
