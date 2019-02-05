@@ -132,45 +132,43 @@
             @succ-2))
     ))
 
-
 (deftest kcas-interference-3-t
   ;; run test
-  (is
-   (test-runner/run-with-reducer
-    (m/monadic
-     (conc/print "---")
-     (let [[cs-1 cs-2] (mk-cas-list-pair! 1)])
+  (test-runner/run
+   (m/monadic
+    (conc/print "---")
+    (let [[cs-1 cs-2] (mk-cas-list-pair! 1)])
 
-     ;; return values
-     [succ-1 (conc/new-ref false)]
-     [succ-2 (conc/new-ref false)]
+    ;; return values
+    [succ-1 (conc/new-ref false)]
+    [succ-2 (conc/new-ref false)]
 
-     ;; self
-     [parent (conc/get-current-task)]
+    ;; self
+    [parent (conc/get-current-task)]
 
-     ;; one
-     (conc/fork
-      (m/monadic
-       (test-runner/mark)
-       [succ (kcas/kcas cs-1)]
-       (test-runner/unmark)
-       (conc/reset succ-1 succ)
-       (conc/unpark parent nil)
-       ))
-
-     ;; two
+    ;; one
+    (conc/fork
      (m/monadic
       (test-runner/mark)
-      [succ (kcas/kcas cs-2)]
+      [succ (kcas/kcas cs-1)]
       (test-runner/unmark)
-      (conc/reset succ-2 succ))
+      (conc/reset succ-1 succ)
+      (conc/unpark parent nil)
+      ))
 
-     ;; wait for child
-     (conc/park)
+    ;; two
+    (m/monadic
+     (test-runner/mark)
+     [succ (kcas/kcas cs-2)]
+     (test-runner/unmark)
+     (conc/reset succ-2 succ))
 
-     [s1 (conc/read succ-1)]
-     [s2 (conc/read succ-2)]
+    ;; wait for child
+    (conc/park)
 
-     (m/return
-      (or s1 s2)))
-    #(and %1 %2) true)))
+    [s1 (conc/read succ-1)]
+    [s2 (conc/read succ-2)]
+
+    (let [_ (is (or s1 s2))])
+
+    (m/return nil))))

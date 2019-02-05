@@ -355,6 +355,18 @@
                  (reduce-fn acc arg))))
       acc)))
 
+(defn run [m]
+  (loop [prefixes #{[]}]
+    (when-let [prefix (first prefixes)]
+      (let [[code arg] (run-with-trace-prefix prefix m)]
+        (case code
+          :new-prefixes
+          (recur (clojure.set/union (set (rest prefixes)) arg))
+
+          :done
+          (recur (set (rest prefixes)))))
+      )))
+
 #_(run-with-reducer
  (m/monadic
   (conc/print "---")
