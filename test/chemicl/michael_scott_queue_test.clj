@@ -66,3 +66,35 @@
     (is (= 9 @res-2))
     (is (= nil @res-3))
     ))
+
+(deftest cursor-t
+  (let [res-1 (atom nil)
+        res-2 (atom nil)
+        res-3 (atom nil)
+        m (m/monadic
+           ;; populate
+           [q (msq/create)]
+           (msq/push q 42)
+           (msq/push q 23)
+
+           ;; cursor
+           [c-1 (msq/cursor q)]
+           (let [_ (reset! res-1 (msq/cursor-value c-1))])
+           [c-2 (msq/cursor-next c-1)]
+           (let [_ (reset! res-2 (msq/cursor-value c-2))])
+           [c-3 (msq/cursor-next c-2)]
+           (let [_ (reset! res-3 c-3)])
+           (conc/print "done")
+           )]
+
+    ;; run
+    (conc/run-many-to-many m)
+
+    ;; wait
+    (Thread/sleep 20)
+
+    ;; check
+    (is (= 42 @res-1))
+    (is (= 23 @res-2))
+    (is (= nil @res-3))
+    ))
