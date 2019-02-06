@@ -6,7 +6,8 @@
             [chemicl.concurrency :as conc]
             [chemicl.channels :as channels]
             [chemicl.message-queue :as mq]
-            [clojure.test :as t :refer [deftest testing is]]))
+            [clojure.test :as t :refer [deftest testing is]]
+            [chemicl.concurrency-test-runner :as test-runner]))
 
 
 ;; ----------------------
@@ -113,6 +114,52 @@
 
     ;; Check that starter upd succeeded
     (is (= @starter-res :starter-res))))
+
+(deftest update-tt
+  (let [blocking-upd (fn [r] (rea/upd r
+                                      (fn [[ov retv]]
+                                        (when (= ov :starter-was-here)
+                                          [:blocker-was-here :blocker-res]))))
+        other-upd (fn [r] (rea/upd r
+                                   (fn [[ov retv]]
+                                     [:starter-was-here :starter-res])))]
+
+    ;; Run
+    (test-runner/run
+     (m/monadic
+      [parent (conc/get-current-task)]
+      [blocker-res (conc/new-ref :nothing)]
+      [r (refs/new-ref :nobody-was-here)]
+
+      ;; run blocking-upd
+      (conc/fork
+       (m/monadic
+        (test-runner/mark)
+        [res (rea/react! (blocking-upd r) nil)]
+        (test-runner/unmark)
+
+        (conc/reset blocker-res res)
+        (conc/unpark parent nil)
+        ))
+
+      ;; run other-upd
+      (test-runner/mark)
+      (rea/react! (other-upd r) nil)
+      (test-runner/unmark)
+
+      ;; sleep
+      (conc/park)
+
+      ;; check results
+      [blr (conc/read blocker-res)]
+      [rr (refs/read r)]
+      (let [_ (assert (= blr :blocker-res) "blocker-res")])
+      (let [_ (assert (= rr :blocker-was-here) "blocker-was-here")])
+      (let [_ (is (= blr :blocker-res))])
+      (let [_ (is (= rr :blocker-was-here))])
+
+      (m/return nil) 
+      ))))
 
 
 ;; ----------------------

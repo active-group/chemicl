@@ -5,6 +5,7 @@
    [chemicl.concurrency :as conc]
    [chemicl.post-commit :as pc]
    [chemicl.kcas :as kcas]
+   [chemicl.backoff :as backoff]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
    [active.clojure.monad :as m]))
@@ -52,28 +53,33 @@
 ;; state transitions
 
 (defmonadic rescind [oref]
-  [o (kcas/read oref)]
-  (whenm (or (empty? o)
-             (waiting? o))
-    ;; cas to rescinded
-    [succ (kcas/cas oref o [:rescinded])]
+  (backoff/with-exp-backoff
+    [o (kcas/read oref)]
+    (cond
+      (completed? o)
+      (m/return (backoff/done (offer-answer o)))
 
-    ;; unpark when we successfully rescinded the offer
-    (whenm (and succ
-                (waiting? o))
-      (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)))
+      (rescinded? o)
+      (m/return (backoff/done nil))
 
-  ;; here we expect the offer to either be recinded or completed
-  [offer (kcas/read oref)]
-  (cond
-    (completed? offer) ;; somebody slid in
-    (m/return (offer-answer offer))
+      (waiting? o)
+      (m/monadic
+       [succ (kcas/cas oref o [:rescinded])]
+       (if succ
+         ;; unpark
+         (m/monadic
+          (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)
+          (m/return (backoff/done nil)))
+         ;; else retry
+         (m/return (backoff/retry-backoff))))
 
-    (rescinded? offer) ;; we were successful
-    (m/return false)
-
-    :else
-    (assert false "We expect offer to be rescinded or completed")))
+      (empty? o)
+      (m/monadic
+       [succ (kcas/cas oref o [:rescinded])]
+       (if succ
+         (m/return (backoff/done nil))
+         (m/return (backoff/retry-backoff))))
+      )))
 
 (defmonadic wait [oref]
   [o (kcas/read oref)]
