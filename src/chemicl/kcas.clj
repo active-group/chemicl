@@ -2,7 +2,16 @@
   (:require
    [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.concurrency :as conc]
-   [active.clojure.monad :as m]))
+   [active.clojure.monad :as m]
+   [chemicl.backoff :as backoff]))
+
+(defn- make-sentinel [rn]
+  [::sentinel rn])
+
+(defn- sentinel? [v]
+  (and (coll? v)
+       (= (first v)
+          ::sentinel)))
 
 (defmonadic cas-all-to-sentinel-counting [cs sentinel counter]
   (if (empty? cs)
@@ -56,8 +65,26 @@
 (defmonadic kcas [cs]
   ;; maybe rand is too expensive
   ;; we should at least precompute it for each lightweight thread
-  (let [sentinel (rand)])
+  (let [sentinel (make-sentinel (rand))])
   [succ-1 (kcas-to-sentinel cs sentinel)]
   (if succ-1
     (kcas-from-sentinel cs sentinel)
     (m/return false)))
+
+
+;; --- Raw refs
+
+(def new-ref conc/new-ref)
+
+(def cas conc/cas)
+
+(def reset conc/reset)
+
+(defmonadic read [r]
+  (backoff/with-exp-backoff
+    [v (conc/read r)]
+    (if (sentinel? v)
+      ;; r is currently being kcased on
+      (m/return (backoff/retry-backoff))
+      ;; else success
+      (m/return (backoff/done v)))))

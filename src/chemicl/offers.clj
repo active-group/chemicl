@@ -4,6 +4,7 @@
    [chemicl.reaction-data :as rx-data]
    [chemicl.concurrency :as conc]
    [chemicl.post-commit :as pc]
+   [chemicl.kcas :as kcas]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
    [active.clojure.monad :as m]))
@@ -45,17 +46,17 @@
 ;; ... beginning with :empty
 
 (defmonadic new-offer []
-  [oref (conc/new-ref [:empty])]
+  [oref (kcas/new-ref [:empty])]
   (m/return oref))
 
 ;; state transitions
 
 (defmonadic rescind [oref]
-  [o (conc/read oref)]
+  [o (kcas/read oref)]
   (whenm (or (empty? o)
              (waiting? o))
     ;; cas to rescinded
-    [succ (conc/cas oref o [:rescinded])]
+    [succ (kcas/cas oref o [:rescinded])]
 
     ;; unpark when we successfully rescinded the offer
     (whenm (and succ
@@ -63,7 +64,7 @@
       (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)))
 
   ;; here we expect the offer to either be recinded or completed
-  [offer (conc/read oref)]
+  [offer (kcas/read oref)]
   (cond
     (completed? offer) ;; somebody slid in
     (m/return (offer-answer offer))
@@ -75,19 +76,18 @@
     (assert false "We expect offer to be rescinded or completed")))
 
 (defmonadic wait [oref]
-  [o (conc/read oref)]
+  [o (kcas/read oref)]
   [me (conc/get-current-task)]
-  (let [[status arg] o])
   [succ
    (cond
      (empty? o)
-     (conc/cas oref o [:waiting me])
+     (kcas/cas oref o [:waiting me])
 
      (completed? o)
-     false
+     (m/return false)
 
      (rescinded? o)
-     false
+     (m/return false)
 
      (waiting? o)
      (assert false "Cannot wait twice on a ref"))]
@@ -98,7 +98,7 @@
     (m/return nil)))
 
 (defmonadic complete [oref v] ;; v final result, returns a reaction
-  [o (conc/read oref)]
+  [o (kcas/read oref)]
   (m/return
    (cond
      (waiting? o)

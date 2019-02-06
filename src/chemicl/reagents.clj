@@ -5,7 +5,6 @@
    [chemicl.message-queue :as mq]
    [chemicl.channels :as ch]
    [chemicl.post-commit :as pc]
-   [chemicl.concurrency :as conc]
    [chemicl.offers :as offers]
    [chemicl.kcas :as kcas]
    [chemicl.refs :as refs]
@@ -233,12 +232,12 @@
 
 (defmonadic message-is-active? [m]
   (let [oref (message-sender-offer m)])
-  [o (conc/read oref)]
+  [o (kcas/read oref)]
   (m/return
    (offers/active? o)))
 
 (defmonadic try-react-swap-from [k a rx oref cursor retry?]
-  (let [msg (mq/cursor-value cursor)])
+  (let [msg (and cursor (mq/cursor-value cursor))])
   (if-not msg
     (m/return
      (if retry? :retry :block))
