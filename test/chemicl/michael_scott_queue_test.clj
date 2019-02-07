@@ -3,6 +3,7 @@
             [active.clojure.monad :as m]
             [chemicl.monad :as cm :refer [defmonadic whenm]]
             [chemicl.concurrency :as conc]
+            [chemicl.concurrency-test-runner :as test-runner]
             [clojure.test :as t :refer [deftest testing is]]))
 
 (deftest push-then-pop-t
@@ -33,6 +34,39 @@
     (is (= 23 @res-2))
     (is (= nil @res-3))
     ))
+
+(deftest push-push-tt
+  (test-runner/run
+    (m/monadic
+     [q (msq/create)]
+
+     ;; one pusher
+     (conc/fork
+      (m/monadic
+       (test-runner/mark)
+       (msq/push q 42)
+       (test-runner/unmark)))
+
+     ;; two pusher
+     (m/monadic
+       (test-runner/mark)
+       (msq/push q 23)
+       (test-runner/unmark))
+
+     ;; pop 3
+     [r1 (msq/try-pop q)]
+     [r2 (msq/try-pop q)]
+     [r3 (msq/try-pop q)]
+
+     ;; check
+     (let [r1-42 (= r1 42)
+           r2-42 (= r2 42)
+           r1-23 (= r1 23)
+           r2-23 (= r2 23)])
+     (test-runner/assert (or (and (= r1 42) (= r2 23))
+                             (and (= r1 23) (= r2 42))))
+     (test-runner/assert (= r3 nil))
+     )))
 
 (deftest clean-until-t
   (let [res-1 (atom nil)

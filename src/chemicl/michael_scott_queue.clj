@@ -67,7 +67,7 @@
                  tail-node
                  successor-node)
        ;; and retry
-       (push q x))
+       (m/return (backoff/retry-reset)))
       ;; found true tail
       (m/monadic
        [succ (conc/cas (node-next tail-node)
