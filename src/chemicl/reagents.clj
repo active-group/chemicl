@@ -128,37 +128,6 @@
 ;; -----------------------------------------------
 ;; Helpers
 
-(defn may-sync? [rea]
-  (cond
-    (upd? rea)
-    true
-
-    (swap? rea)
-    true
-
-    (commit? rea)
-    false
-
-    (post-commit? rea)
-    (may-sync? (post-commit-k rea))
-
-    (read? rea)
-    (may-sync? (read-k rea))
-
-    (return? rea)
-    (may-sync? (return-k rea))
-
-    (computed? rea)
-    true ;; can't be sure, true is the safe bet
-
-    (lift? rea)
-    (may-sync? (lift-k rea))
-
-    (choose? rea)
-    (or (may-sync? (choose-l rea))
-        (may-sync? (choose-r rea)))))
-
-;; FIXME: loop recur
 (defn- compose [rea r]
   (cond
     (upd? rea)
@@ -466,9 +435,7 @@
     (= :retry res)
     (m/monadic
      (backoff/timeout-with-counter backoff-counter)
-     (if (may-sync? reagent)
-       (with-offer reagent a (inc backoff-counter))
-       (without-offer reagent a (inc backoff-counter))))
+     (without-offer reagent a (inc backoff-counter)))
 
     :else
     (m/return res)))
