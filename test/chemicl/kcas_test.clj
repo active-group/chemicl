@@ -137,7 +137,7 @@
   (test-runner/run
    (m/monadic
     (conc/print "---")
-    (let [[cs-1 cs-2] (mk-cas-list-pair! 1)])
+    (let [[cs-1 cs-2] (mk-cas-list-pair! 3)])
 
     ;; return values
     [succ-1 (conc/new-ref false)]
