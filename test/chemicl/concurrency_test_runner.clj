@@ -20,6 +20,14 @@
 
 (def unmark make-unmark-command)
 
+(acr/define-record-type AssertCommand
+  (make-assert-command pred s)
+  assert-command?
+  [pred assert-command-predicate
+   s assert-command-string])
+
+(def assert make-assert-command)
+
 ;; --- Internal ---------
 
 (acr/define-record-type ThreadState
@@ -82,6 +90,17 @@
                                    (unmark-thread-state)
                                    (set-thread-state-m (c nil)))))
          nil]
+
+        (assert-command? m1)
+        (do
+          (when-not (assert-command-predicate m1)
+            (println "Assertion failed")
+            (println (pr-str tid))
+            (println (assert-command-string m1))
+            (clojure.core/assert false "An assertion failed"))
+          [:continue
+           (update threads tid set-thread-state-m (c tid))
+           nil])
 
         (conc/get-current-task-command? m1)
         [:continue
@@ -186,6 +205,17 @@
     [:done
      (dissoc threads tid)
      nil]
+
+    (assert-command? m)
+    (do
+      (when-not (assert-command-predicate m)
+        (println "Assertion failed")
+        (println (pr-str tid))
+        (println (assert-command-string m))
+        (clojure.core/assert false "An assertion failed"))
+      [:done
+       (dissoc threads tid)
+       nil])
 
     (conc/print-command? m)
     (do
