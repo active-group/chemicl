@@ -49,9 +49,9 @@
 
      ;; two pusher
      (m/monadic
-       (test-runner/mark)
-       (msq/push q 23)
-       (test-runner/unmark))
+      (test-runner/mark)
+      (msq/push q 23)
+      (test-runner/unmark))
 
      ;; pop 3
      [r1 (msq/try-pop q)]
@@ -63,9 +63,9 @@
            r2-42 (= r2 42)
            r1-23 (= r1 23)
            r2-23 (= r2 23)])
-     (test-runner/assert (or (and (= r1 42) (= r2 23))
-                             (and (= r1 23) (= r2 42))))
-     (test-runner/assert (= r3 nil))
+     (test-runner/is (or (and (= r1 42) (= r2 23))
+                         (and (= r1 23) (= r2 42))))
+     (test-runner/is= r3 nil)
      )))
 
 (deftest clean-until-t

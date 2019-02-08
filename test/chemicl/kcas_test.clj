@@ -169,6 +169,5 @@
     [s1 (conc/read succ-1)]
     [s2 (conc/read succ-2)]
 
-    (let [_ (is (or s1 s2))])
-
-    (m/return nil))))
+    (test-runner/is (or s1 s2))
+    )))

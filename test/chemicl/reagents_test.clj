@@ -153,12 +153,8 @@
       ;; check results
       [blr (conc/read blocker-res)]
       [rr (refs/read r)]
-      (let [_ (assert (= blr :blocker-res) "blocker-res")])
-      (let [_ (assert (= rr :blocker-was-here) "blocker-was-here")])
-      (let [_ (is (= blr :blocker-res))])
-      (let [_ (is (= rr :blocker-was-here))])
-
-      (m/return nil) 
+      (test-runner/is= blr :blocker-res)
+      (test-runner/is= rr :blocker-was-here)
       ))))
 
 
