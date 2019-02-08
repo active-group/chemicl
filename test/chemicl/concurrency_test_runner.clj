@@ -332,6 +332,11 @@
       false
       )))
 
+(defn- deadlocked? [threads]
+  (let [active (filter-values active? threads)]
+    (and (> (count threads) 0)
+         (= (count active) 0))))
+
 (defn- inside-trace-period? [threads]
   (every? marked? (vals threads)))
 
@@ -341,6 +346,17 @@
             (keys threads))))
 
 (defn- prefixes [prefix threads]
+  (when (deadlocked? threads)
+    (test/do-report {:type :fail
+                     :message (str "Found a deadlock!\n\n"
+                                   "Threads:\n"
+                                   (with-out-str (clojure.pprint/pprint threads))
+                                   "\n\nSchedule:\n"
+                                   (with-out-str (clojure.pprint/pprint prefix)))
+                     :expected :no-deadlock
+                     :actual :deadlock
+                     }))
+  
   (let [active-threads (filter-values active? threads)
         active+staying-traced-threads (filter-values
                                        (complement leaves-trace-period?)
