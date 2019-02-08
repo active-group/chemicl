@@ -2,7 +2,30 @@
   (:require [chemicl.concurrency :as conc]
             [active.clojure.monad :as m]
             [active.clojure.record :as acr]
-            [active.clojure.lens :as lens]))
+            [active.clojure.lens :as lens]
+            [clojure.test :as test]))
+
+(declare make-is-equal-command)
+(declare run-)
+
+;; --- Testing API ---------
+
+(defn is=
+  "(is= l r) is like (clojure.test/is (= l r))"
+  [x a & [msg]]
+  (make-is-equal-command x a msg))
+
+(defmacro is
+  "Similar to clojure.test/is"
+  [c & args]
+  `(is= true ~c ~@args))
+
+(defn run
+  "Run a concurrent program with the exhaustive test runner.
+  Iterates over all scheduling patterns."
+  [m]
+  (run- m))
+
 
 ;; --- Special commands for testing ---------
 
@@ -20,13 +43,13 @@
 
 (def unmark make-unmark-command)
 
-(acr/define-record-type AssertCommand
-  (make-assert-command pred s)
-  assert-command?
-  [pred assert-command-predicate
-   s assert-command-string])
+(acr/define-record-type IsEqualCommand
+  (make-is-equal-command expected actual msg)
+  is-equal-command?
+  [expected is-equal-command-expected
+   actual is-equal-command-actual
+   msg is-equal-command-message])
 
-(def assert make-assert-command)
 
 ;; --- Internal ---------
 
@@ -37,34 +60,34 @@
    (counter thread-state-counter thread-state-counter-O)
    (annotation thread-state-annotation thread-state-annotation-O)])
 
-(defn make-thread-state
+(defn- make-thread-state
   ([m]
    (mk-thread-state m 1 :unmarked))
   ([m ann]
    (mk-thread-state m 1 ann)))
 
-(defn set-thread-state-m [ts m]
+(defn- set-thread-state-m [ts m]
   (lens/shove ts thread-state-m-O m))
 
-(defn inc-thread-state-counter [ts]
+(defn- inc-thread-state-counter [ts]
   (lens/overhaul ts thread-state-counter-O inc))
 
-(defn dec-thread-state-counter [ts]
+(defn- dec-thread-state-counter [ts]
   (lens/overhaul ts thread-state-counter-O dec))
 
-(defn mark-thread-state [ts]
+(defn- mark-thread-state [ts]
   (lens/shove ts thread-state-annotation-O :marked))
 
-(defn unmark-thread-state [ts]
+(defn- unmark-thread-state [ts]
   (lens/shove ts thread-state-annotation-O :unmarked))
 
-(defn marked? [ts]
+(defn- marked? [ts]
   (= :marked (thread-state-annotation ts)))
 
-(defn new-thread-id [log]
+(defn- new-thread-id [log]
   (hash log))
 
-(defn enact [tid m log threads]
+(defn- enact [tid m log threads]
   (cond
     (m/free-bind? m)
     (let [m1 (m/free-bind-monad m)
@@ -91,13 +114,14 @@
                                    (set-thread-state-m (c nil)))))
          nil]
 
-        (assert-command? m1)
-        (do
-          (when-not (assert-command-predicate m1)
-            (println "Assertion failed")
-            (println (pr-str tid))
-            (println (assert-command-string m1))
-            (clojure.core/assert false "An assertion failed"))
+        (is-equal-command? m1)
+        (let [expected (is-equal-command-expected m1)
+              actual (is-equal-command-actual m1)
+              msg (is-equal-command-message m1)]
+          (test/do-report {:type (if (= expected actual) :pass :fail)
+                           :message msg
+                           :expected expected
+                           :actual actual})
           [:continue
            (update threads tid set-thread-state-m (c tid))
            nil])
@@ -206,13 +230,14 @@
      (dissoc threads tid)
      nil]
 
-    (assert-command? m)
-    (do
-      (when-not (assert-command-predicate m)
-        (println "Assertion failed")
-        (println (pr-str tid))
-        (println (assert-command-string m))
-        (clojure.core/assert false "An assertion failed"))
+    (is-equal-command? m)
+    (let [expected (is-equal-command-expected m)
+          actual (is-equal-command-actual m)
+          msg (is-equal-command-message m)]
+      (test/do-report {:type (if (= expected actual) :pass :fail)
+                       :message msg
+                       :expected expected
+                       :actual actual})
       [:done
        (dissoc threads tid)
        nil])
@@ -287,13 +312,13 @@
      nil]
     ))
 
-(defn filter-values [pred m]
+(defn- filter-values [pred m]
   (filter (comp pred second) m))
 
-(defn active? [ts]
+(defn- active? [ts]
   (> (thread-state-counter ts) 0))
 
-(defn leaves-trace-period? [ts]
+(defn- leaves-trace-period? [ts]
   (let [m (thread-state-m ts)]
     (cond
       (m/free-bind? m)
@@ -307,15 +332,15 @@
       false
       )))
 
-(defn inside-trace-period? [threads]
+(defn- inside-trace-period? [threads]
   (every? marked? (vals threads)))
 
-(defn glue [prefix threads]
+(defn- glue [prefix threads]
   (set (map (fn [tid]
               (concat prefix [tid]))
             (keys threads))))
 
-(defn prefixes [prefix threads]
+(defn- prefixes [prefix threads]
   (let [active-threads (filter-values active? threads)
         active+staying-traced-threads (filter-values
                                        (complement leaves-trace-period?)
@@ -334,7 +359,7 @@
       ;; outside trace period: choose only one prefix, deterministically
       (set [(first pres)]))))
 
-(defn run-with-trace-prefix
+(defn- run-with-trace-prefix
   "Consumes prefix, may produce a set of new prefixes"
   [prefix m]
   (loop [threads {:init (make-thread-state m)}
@@ -369,23 +394,7 @@
        (prefixes prefix threads)]
       )))
 
-(defn run-with-reducer [m reduce-fn acc]
-  (loop [prefixes #{[]}
-         acc acc]
-    #_(println "-- " (pr-str (count prefixes)))
-    (if-let [prefix (first prefixes)]
-      (let [[code arg] (run-with-trace-prefix prefix m)]
-        (case code
-          :new-prefixes
-          (recur (clojure.set/union (set (rest prefixes)) arg)
-                 acc)
-
-          :done
-          (recur (set (rest prefixes))
-                 (reduce-fn acc arg))))
-      acc)))
-
-(defn run [m]
+(defn- run- [m]
   (loop [prefixes #{[]}]
     (when-let [prefix (first prefixes)]
       (let [[code arg] (run-with-trace-prefix prefix m)]
@@ -396,68 +405,3 @@
           :done
           (recur (set (rest prefixes)))))
       )))
-
-#_(run-with-reducer
- (m/monadic
-  (conc/print "---")
-  (conc/fork
-   (m/monadic
-    (conc/print "a")
-    (make-mark-command)
-    (conc/print "b")
-    (conc/print "c")
-    (conc/print "c")
-    (make-unmark-command)
-    (conc/print "d")
-    ))
-  (m/monadic
-   (conc/print "1")
-   (make-mark-command)
-   (conc/print "2") (conc/print "3")
-   (conc/print "3")
-   (conc/print "3")
-   (make-unmark-command)
-   (conc/print "4")
-   )
-
-  (m/return 1))
- #(+ %1 %2) 0)
-
-#_(run-with-reducer
- (m/monadic
-  (conc/print "---")
-  (make-mark-command)
-  [r (conc/new-ref 1)]
-
-  [child (conc/fork
-          (m/monadic
-           (conc/park)
-           (conc/cas r 23 42)
-           (conc/print "foo")
-           ))]
-
-  (conc/cas r 1 23)
-  (conc/print "bar")
-  (conc/unpark child nil)
-
-  (make-unmark-command)
-
-  [n (conc/read r)]
-  (conc/print "n: " (pr-str n))
-  (m/return (= n 42)))
- #(and %1 %2) true)
-
-#_(run-with-reducer
- (m/monadic
-  (conc/print "---")
-  (make-mark-command)
-  [tid (conc/get-current-task)]
-  (conc/fork
-   (m/monadic
-    (conc/print "child")
-    (conc/unpark tid nil)))
-
-  (conc/park)
-  (conc/print "parent")
-  (m/return 1))
- #(+ %1 %2) 0)
