@@ -88,229 +88,234 @@
   (hash log))
 
 (defn- enact [tid m log threads]
-  (cond
-    (m/free-bind? m)
-    (let [m1 (m/free-bind-monad m)
-          c (m/free-bind-cont m)]
-      (cond
-        (m/free-return? m1)
-        [:continue
-         (update threads tid set-thread-state-m (c (m/free-return-val m1)))
-         nil]
-
-        (mark-command? m1)
-        [:continue
-         (update threads tid (fn [ts]
-                               (-> ts
-                                   (mark-thread-state)
-                                   (set-thread-state-m (c nil)))))
-         nil]
-
-        (unmark-command? m1)
-        [:continue
-         (update threads tid (fn [ts]
-                               (-> ts
-                                   (unmark-thread-state)
-                                   (set-thread-state-m (c nil)))))
-         nil]
-
-        (is-equal-command? m1)
-        (let [expected (is-equal-command-expected m1)
-              actual (is-equal-command-actual m1)
-              msg (is-equal-command-message m1)]
-          (test/do-report {:type (if (= expected actual) :pass :fail)
-                           :message msg
-                           :expected expected
-                           :actual actual})
+  (loop [m m]
+    (cond
+      (m/free-bind? m)
+      (let [m1 (m/free-bind-monad m)
+            c (m/free-bind-cont m)]
+        (cond
+          (m/free-return? m1)
           [:continue
-           (update threads tid set-thread-state-m (c tid))
-           nil])
+           (update threads tid set-thread-state-m (c (m/free-return-val m1)))
+           nil]
 
-        (conc/get-current-task-command? m1)
-        [:continue
-         (update threads tid set-thread-state-m (c tid))
-         nil]
-
-        (conc/print-command? m1)
-        (do
-          (println (conc/print-command-line m1))
-          [:continue
-           (update threads tid set-thread-state-m (c nil))
-           nil])
-
-        (conc/new-ref-command? m1)
-        (let [a (atom (conc/new-ref-command-init m1))]
-          [:continue
-           (update threads tid set-thread-state-m (c a))
-           nil])
-
-        (conc/cas-command? m1)
-        (do
-          (let [succ 
-                (compare-and-set! (conc/cas-command-ref m1)
-                                  (conc/cas-command-old-value m1)
-                                  (conc/cas-command-new-value m1))]
-            [:continue
-             (update threads tid set-thread-state-m (c succ))
-             nil]))
-
-        (conc/read-command? m1)
-        (do
-          [:continue
-           (update
-            threads
-            tid
-            set-thread-state-m
-            (c (deref (conc/read-command-ref m1))))
-           nil])
-
-        (conc/reset-command? m1)
-        (do
-          (let [res (reset! (conc/reset-command-ref m1)
-                            (conc/reset-command-new-value m1))]
-            [:continue
-             (update threads tid set-thread-state-m (c res))
-             nil]))
-
-        (conc/park-command? m1)
-        (do
-          #_(println "PARKING")
-          #_(println (pr-str threads))
-          #_(println (pr-str (update threads tid dec-thread-state-counter)))
+          (mark-command? m1)
           [:continue
            (update threads tid (fn [ts]
                                  (-> ts
-                                     (dec-thread-state-counter)
+                                     (mark-thread-state)
                                      (set-thread-state-m (c nil)))))
-           nil])
+           nil]
 
-        (conc/unpark-command? m1)
-        (let [otid (conc/unpark-command-task m1)
-              v (conc/unpark-command-value m1)]
-          #_(println "UNPARKING")
-          #_(println (pr-str threads))
-          #_(println (pr-str (-> threads
-                                 (update tid set-thread-state-m (c nil))
-                                 (update otid inc-thread-state-counter))))
+          (unmark-command? m1)
           [:continue
-           (-> threads
-               (update tid set-thread-state-m (c nil))
-               (update otid inc-thread-state-counter))
-           nil])
+           (update threads tid (fn [ts]
+                                 (-> ts
+                                     (unmark-thread-state)
+                                     (set-thread-state-m (c nil)))))
+           nil]
 
-        (conc/fork-command? m1)
-        (let [forked-m (conc/fork-command-monad m1)
-              forked-tid (new-thread-id log)
-              ann (thread-state-annotation
-                    (get threads tid))]
-          [:continue
-           (-> threads
-               (update tid set-thread-state-m (c forked-tid))
-               (assoc forked-tid (make-thread-state forked-m ann)))
-           nil])
+          (is-equal-command? m1)
+          (let [expected (is-equal-command-expected m1)
+                actual (is-equal-command-actual m1)
+                msg (is-equal-command-message m1)]
+            (test/do-report {:type (if (= expected actual) :pass :fail)
+                             :message msg
+                             :expected expected
+                             :actual actual})
+            (recur (c nil))
+            #_[:continue
+               (update threads tid set-thread-state-m (c tid))
+               nil])
 
-        (conc/timeout-command? m1)
-        [:continue
-         (update threads tid set-thread-state-m (c nil))
-         nil]
-        ))
+          (conc/get-current-task-command? m1)
+          (recur (c tid))
+          #_[:continue
+             (update threads tid set-thread-state-m (c tid))
+             nil]
 
-    (m/free-return? m)
-    [:done
-     (dissoc threads tid)
-     (m/free-return-val m)]
+          (conc/print-command? m1)
+          (do
+            (println (conc/print-command-line m1))
+            (recur (c nil))
+            #_[:continue
+               (update threads tid set-thread-state-m (c nil))
+               nil])
 
-    (mark-command? m)
-    [:done
-     (dissoc threads tid)
-     nil]
+          (conc/new-ref-command? m1)
+          (let [a (atom (conc/new-ref-command-init m1))]
+            [:continue
+             (update threads tid set-thread-state-m (c a))
+             nil])
 
-    (unmark-command? m)
-    [:done
-     (dissoc threads tid)
-     nil]
+          (conc/cas-command? m1)
+          (do
+            (let [succ 
+                  (compare-and-set! (conc/cas-command-ref m1)
+                                    (conc/cas-command-old-value m1)
+                                    (conc/cas-command-new-value m1))]
+              [:continue
+               (update threads tid set-thread-state-m (c succ))
+               nil]))
 
-    (is-equal-command? m)
-    (let [expected (is-equal-command-expected m)
-          actual (is-equal-command-actual m)
-          msg (is-equal-command-message m)]
-      (test/do-report {:type (if (= expected actual) :pass :fail)
-                       :message msg
-                       :expected expected
-                       :actual actual})
+          (conc/read-command? m1)
+          (do
+            [:continue
+             (update
+              threads
+              tid
+              set-thread-state-m
+              (c (deref (conc/read-command-ref m1))))
+             nil])
+
+          (conc/reset-command? m1)
+          (do
+            (let [res (reset! (conc/reset-command-ref m1)
+                              (conc/reset-command-new-value m1))]
+              [:continue
+               (update threads tid set-thread-state-m (c res))
+               nil]))
+
+          (conc/park-command? m1)
+          (do
+            #_(println "PARKING")
+            #_(println (pr-str threads))
+            #_(println (pr-str (update threads tid dec-thread-state-counter)))
+            [:continue
+             (update threads tid (fn [ts]
+                                   (-> ts
+                                       (dec-thread-state-counter)
+                                       (set-thread-state-m (c nil)))))
+             nil])
+
+          (conc/unpark-command? m1)
+          (let [otid (conc/unpark-command-task m1)
+                v (conc/unpark-command-value m1)]
+            #_(println "UNPARKING")
+            #_(println (pr-str threads))
+            #_(println (pr-str (-> threads
+                                   (update tid set-thread-state-m (c nil))
+                                   (update otid inc-thread-state-counter))))
+            [:continue
+             (-> threads
+                 (update tid set-thread-state-m (c nil))
+                 (update otid inc-thread-state-counter))
+             nil])
+
+          (conc/fork-command? m1)
+          (let [forked-m (conc/fork-command-monad m1)
+                forked-tid (new-thread-id log)
+                ann (thread-state-annotation
+                     (get threads tid))]
+            [:continue
+             (-> threads
+                 (update tid set-thread-state-m (c forked-tid))
+                 (assoc forked-tid (make-thread-state forked-m ann)))
+             nil])
+
+          (conc/timeout-command? m1)
+          (recur (c nil))
+          #_[:continue
+             (update threads tid set-thread-state-m (c nil))
+             nil]
+          ))
+
+      (m/free-return? m)
       [:done
        (dissoc threads tid)
-       nil])
+       (m/free-return-val m)]
 
-    (conc/print-command? m)
-    (do
-      (println (conc/print-command-line m))
+      (mark-command? m)
       [:done
        (dissoc threads tid)
-       nil])
+       nil]
 
-    (conc/new-ref-command? m)
-    (let [a (atom (conc/new-ref-command-init m))]
+      (unmark-command? m)
       [:done
        (dissoc threads tid)
-       a])
+       nil]
 
-    (conc/cas-command? m)
-    (let [succ 
-          (compare-and-set! (conc/cas-command-ref m)
-                            (conc/cas-command-old-value m)
-                            (conc/cas-command-new-value m))]
+      (is-equal-command? m)
+      (let [expected (is-equal-command-expected m)
+            actual (is-equal-command-actual m)
+            msg (is-equal-command-message m)]
+        (test/do-report {:type (if (= expected actual) :pass :fail)
+                         :message msg
+                         :expected expected
+                         :actual actual})
+        [:done
+         (dissoc threads tid)
+         nil])
+
+      (conc/print-command? m)
+      (do
+        (println (conc/print-command-line m))
+        [:done
+         (dissoc threads tid)
+         nil])
+
+      (conc/new-ref-command? m)
+      (let [a (atom (conc/new-ref-command-init m))]
+        [:done
+         (dissoc threads tid)
+         a])
+
+      (conc/cas-command? m)
+      (let [succ 
+            (compare-and-set! (conc/cas-command-ref m)
+                              (conc/cas-command-old-value m)
+                              (conc/cas-command-new-value m))]
+        [:done
+         (dissoc threads tid)
+         succ])
+
+      (conc/read-command? m)
       [:done
        (dissoc threads tid)
-       succ])
+       (deref (conc/read-command-ref m))]
 
-    (conc/read-command? m)
-    [:done
-     (dissoc threads tid)
-     (deref (conc/read-command-ref m))]
+      (conc/reset-command? m)
+      (let [res (reset! (conc/reset-command-ref m)
+                        (conc/reset-command-new-value m))]
+        [:done
+         (dissoc threads tid)
+         res])
 
-    (conc/reset-command? m)
-    (let [res (reset! (conc/reset-command-ref m)
-                      (conc/reset-command-new-value m))]
+      (conc/park-command? m)
       [:done
        (dissoc threads tid)
-       res])
+       nil]
 
-    (conc/park-command? m)
-    [:done
-     (dissoc threads tid)
-     nil]
+      (conc/unpark-command? m)
+      (let [otid (conc/unpark-command-task m)
+            v (conc/unpark-command-value m)]
+        #_(println "UNPARKING")
+        #_(println (pr-str threads))
+        #_(println (pr-str (-> threads
+                               (dissoc tid)
+                               (update otid inc-thread-state-counter))))
+        [:done
+         (-> threads
+             (dissoc tid)
+             (update otid inc-thread-state-counter))
+         nil])
 
-    (conc/unpark-command? m)
-    (let [otid (conc/unpark-command-task m)
-          v (conc/unpark-command-value m)]
-      #_(println "UNPARKING")
-      #_(println (pr-str threads))
-      #_(println (pr-str (-> threads
-                             (dissoc tid)
-                             (update otid inc-thread-state-counter))))
+      (conc/fork-command? m)
+      (let [forked-m (conc/fork-command-monad m)
+            forked-tid (new-thread-id log)
+            ann (thread-state-annotation
+                 (get threads tid))]
+        [:done
+         (-> threads
+             (dissoc tid)
+             (assoc forked-tid (make-thread-state forked-m ann)))
+         forked-tid])
+
+      (conc/timeout-command? m)
       [:done
-       (-> threads
-           (dissoc tid)
-           (update otid inc-thread-state-counter))
-       nil])
-
-    (conc/fork-command? m)
-    (let [forked-m (conc/fork-command-monad m)
-          forked-tid (new-thread-id log)
-          ann (thread-state-annotation
-               (get threads tid))]
-      [:done
-       (-> threads
-           (dissoc tid)
-           (assoc forked-tid (make-thread-state forked-m ann)))
-       forked-tid])
-
-    (conc/timeout-command? m)
-    [:done
-     (dissoc threads tid)
-     nil]
-    ))
+       (dissoc threads tid)
+       nil]
+      )))
 
 (defn- filter-values [pred m]
   (filter (comp pred second) m))
