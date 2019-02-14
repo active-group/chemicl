@@ -413,6 +413,12 @@
 (defn- run- [m]
   (loop [prefixes #{[]}]
     (when-let [prefix (first prefixes)]
+      (print "\033[1A")
+      (print "\033[2K\r")
+      (print "nprefixes:" (pr-str (count prefixes)))
+      (print "\n")
+      (print "prefixlength:" (pr-str (count prefix)))
+      (flush)
       (let [[code arg] (run-with-trace-prefix prefix m)]
         (case code
           :new-prefixes
