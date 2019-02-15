@@ -333,6 +333,15 @@
     (is (= nil @res-res))
     ))
 
+(deftest cas-tt
+  (test-runner/run
+    (m/monadic
+     [r (refs/new-ref :nothing)]
+     (rea/react! (rea/cas r :nothing :something) nil)
+     [v (refs/read r)]
+     (test-runner/is= :something v)
+     )))
+
 
 ;; ----------------------
 ;; --- Read -------------
@@ -361,6 +370,14 @@
     ;; Check result
     (is (= :nothing @res-res))
     ))
+
+(deftest read-tt
+  (test-runner/run
+    (m/monadic
+     [r (refs/new-ref :bounty)]
+     [res (rea/react! (rea/read r) nil)]
+     (test-runner/is= :bounty res)
+     )))
 
 
 ;; ----------------------
