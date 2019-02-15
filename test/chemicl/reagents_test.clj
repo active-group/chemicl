@@ -11,6 +11,153 @@
 
 
 ;; ----------------------
+;; --- Swap -------------
+;; ----------------------
+
+(deftest swap-t
+  (let [res-1 (atom nil)
+        res-2 (atom nil)
+
+        ep-1-atom (atom nil)
+        ep-2-atom (atom nil)
+
+        swapper (fn [ep v res-atom]
+                  (m/monadic
+                   [res (rea/react! (rea/swap ep) v)]
+                   (let [_ (reset! res-atom res)])
+                   (conc/print "done" (pr-str res))))
+        ]
+
+    ;; Run initializer
+    (conc/run-many-to-many
+     (m/monadic
+      [[ep-1 ep-2] (channels/new-channel)]
+      (let [_ (reset! ep-1-atom ep-1)])
+      (let [_ (reset! ep-2-atom ep-2)])
+      (m/return nil)))
+
+    (Thread/sleep 20)
+
+    ;; Run swap-1
+    (conc/run-many-to-many
+     (swapper @ep-1-atom :from-1 res-1))
+
+    ;; Let swap-1 dangle for a while
+    (Thread/sleep 100)
+
+    ;; Run swap-2
+    (conc/run-many-to-many
+     (swapper @ep-2-atom :from-2 res-2))
+
+    ;; Wait
+    (Thread/sleep 20)
+
+    ;; Check results
+    (is (= @res-1 :from-2))
+    (is (= @res-2 :from-1))
+    ))
+
+
+(deftest swap-with-upd-continuation-t
+  (let [res-res-1 (atom nil)
+        res-res-2 (atom nil)
+        mem-res-1 (atom nil)
+        mem-res-2 (atom nil)
+
+        ep-1-atom (atom nil)
+        ep-2-atom (atom nil)
+
+        ref-1-atom (atom nil)
+        ref-2-atom (atom nil)
+
+        swapper (fn [ep v res-res-atom mem-res-atom r]
+                  (m/monadic
+                   [res (rea/react! (rea/>>>
+                                     (rea/swap ep)
+                                     (rea/upd r (fn [[ov a]]
+                                                  ;; store input at ref 
+                                                  [(+ a 100)
+                                                   (+ a 1000)]))) v)]
+                   (let [_ (reset! res-res-atom res)])
+                   [mem (refs/read r)]
+                   (let [_ (reset! mem-res-atom mem)])
+                   (conc/print "done" (pr-str res))))
+        ]
+
+    ;; Run initializer
+    (conc/run-many-to-many
+     (m/monadic
+      [[ep-1 ep-2] (channels/new-channel)]
+      (let [_ (reset! ep-1-atom ep-1)])
+      (let [_ (reset! ep-2-atom ep-2)])
+
+      [ref-1 (refs/new-ref :nothing)]
+      [ref-2 (refs/new-ref :nothing)]
+      (let [_ (reset! ref-1-atom ref-1)])
+      (let [_ (reset! ref-2-atom ref-2)])
+
+      (m/return nil)))
+
+    (Thread/sleep 20)
+
+    ;; Run swap-1
+    (conc/run-many-to-many
+     (swapper @ep-1-atom 1 res-res-1 mem-res-1 @ref-1-atom))
+
+    ;; Let swap-1 dangle for a while
+    (Thread/sleep 100)
+
+    ;; Run swap-2
+    (conc/run-many-to-many
+     (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
+
+    ;; Wait
+    (Thread/sleep 50)
+
+    ;; Check results
+    (is (= @res-res-1 1002)) ;; 2 (swap) + 1000 (upd)
+    (is (= @res-res-2 1001)) ;; 1 (swap) + 1000 (upd)
+
+    ;; Check refs
+    (is (= @mem-res-1 102))
+    (is (= @mem-res-2 101))
+    ))
+
+(deftest swap-tt
+  (test-runner/run
+    (m/monadic
+     ;; init
+     [[ep1 ep2] (channels/new-channel)]
+     [res-1 (conc/new-ref :nothing)]
+     [parent (conc/get-current-task)]
+
+     ;; swapper 1
+     (conc/fork
+      (m/monadic
+       (test-runner/mark)
+       [res (rea/react! (rea/swap ep1) :from-1)]
+       (test-runner/unmark)
+
+       (conc/reset res-1 res)
+       (conc/unpark parent nil)
+       ))
+
+     ;; swapper 2
+     (test-runner/mark)
+     [r2 (rea/react! (rea/swap ep2) :from-2)]
+     (test-runner/unmark)
+
+     ;; wait for swapper 1
+     (conc/park)
+
+     ;; check
+     [r1 (conc/read res-1)]
+     (test-runner/is (= :from-1 r2))
+     (test-runner/is (= :from-2 r1))
+     )))
+
+
+;; ----------------------
 ;; --- Update -----------
 ;; ----------------------
 
@@ -159,120 +306,6 @@
 
 
 ;; ----------------------
-;; --- Swap -------------
-;; ----------------------
-
-(deftest swap-t
-  (let [res-1 (atom nil)
-        res-2 (atom nil)
-
-        ep-1-atom (atom nil)
-        ep-2-atom (atom nil)
-
-        swapper (fn [ep v res-atom]
-                  (m/monadic
-                   [res (rea/react! (rea/swap ep) v)]
-                   (let [_ (reset! res-atom res)])
-                   (conc/print "done" (pr-str res))))
-        ]
-
-    ;; Run initializer
-    (conc/run-many-to-many
-     (m/monadic
-      [[ep-1 ep-2] (channels/new-channel)]
-      (let [_ (reset! ep-1-atom ep-1)])
-      (let [_ (reset! ep-2-atom ep-2)])
-      (m/return nil)))
-
-    (Thread/sleep 20)
-
-    ;; Run swap-1
-    (conc/run-many-to-many
-     (swapper @ep-1-atom :from-1 res-1))
-
-    ;; Let swap-1 dangle for a while
-    (Thread/sleep 100)
-
-    ;; Run swap-2
-    (conc/run-many-to-many
-     (swapper @ep-2-atom :from-2 res-2))
-
-    ;; Wait
-    (Thread/sleep 20)
-
-    ;; Check results
-    (is (= @res-1 :from-2))
-    (is (= @res-2 :from-1))
-    ))
-
-
-(deftest swap-with-upd-continuation-t
-  (let [res-res-1 (atom nil)
-        res-res-2 (atom nil)
-        mem-res-1 (atom nil)
-        mem-res-2 (atom nil)
-
-        ep-1-atom (atom nil)
-        ep-2-atom (atom nil)
-
-        ref-1-atom (atom nil)
-        ref-2-atom (atom nil)
-
-        swapper (fn [ep v res-res-atom mem-res-atom r]
-                  (m/monadic
-                   [res (rea/react! (rea/>>>
-                                     (rea/swap ep)
-                                     (rea/upd r (fn [[ov a]]
-                                                  ;; store input at ref 
-                                                  [(+ a 100)
-                                                   (+ a 1000)]))) v)]
-                   (let [_ (reset! res-res-atom res)])
-                   [mem (refs/read r)]
-                   (let [_ (reset! mem-res-atom mem)])
-                   (conc/print "done" (pr-str res))))
-        ]
-
-    ;; Run initializer
-    (conc/run-many-to-many
-     (m/monadic
-      [[ep-1 ep-2] (channels/new-channel)]
-      (let [_ (reset! ep-1-atom ep-1)])
-      (let [_ (reset! ep-2-atom ep-2)])
-
-      [ref-1 (refs/new-ref :nothing)]
-      [ref-2 (refs/new-ref :nothing)]
-      (let [_ (reset! ref-1-atom ref-1)])
-      (let [_ (reset! ref-2-atom ref-2)])
-
-      (m/return nil)))
-
-    (Thread/sleep 20)
-
-    ;; Run swap-1
-    (conc/run-many-to-many
-     (swapper @ep-1-atom 1 res-res-1 mem-res-1 @ref-1-atom))
-
-    ;; Let swap-1 dangle for a while
-    (Thread/sleep 100)
-
-    ;; Run swap-2
-    (conc/run-many-to-many
-     (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
-
-    ;; Wait
-    (Thread/sleep 50)
-
-    ;; Check results
-    (is (= @res-res-1 1002)) ;; 2 (swap) + 1000 (upd)
-    (is (= @res-res-2 1001)) ;; 1 (swap) + 1000 (upd)
-
-    ;; Check refs
-    (is (= @mem-res-1 102))
-    (is (= @mem-res-2 101))
-    ))
-
-
-;; ----------------------
 ;; --- CAS --------------
 ;; ----------------------
 
@@ -327,76 +360,6 @@
 
     ;; Check result
     (is (= :nothing @res-res))
-    ))
-
-
-;; ----------------------
-;; --- Return -----------
-;; ----------------------
-
-(deftest return-t
-  (let [res (atom nil)
-        rea (rea/return :bounty)]
-
-    ;; run read reagent
-    (conc/run-many-to-many
-     (m/monadic
-      [out (rea/react! rea nil)]
-      (let [_ (reset! res out)])
-      (conc/print "done")))
-
-    ;; wait
-    (Thread/sleep 20)
-
-    ;; Check result
-    (is (= :bounty @res))
-    ))
-
-
-;; ----------------------
-;; --- Computed ---------
-;; ----------------------
-
-(deftest computed-t
-  (let [res (atom nil)
-        rea (rea/computed
-             (fn [a]
-               (rea/return (inc a))))]
-
-    ;; run computed reagent
-    (conc/run-many-to-many
-     (m/monadic
-      [out (rea/react! rea 23)]
-      (let [_ (reset! res out)])
-      (conc/print "done")))
-
-    ;; wait
-    (Thread/sleep 20)
-
-    ;; Check result
-    (is (= 24 @res))))
-
-
-;; ----------------------
-;; --- Lift -------------
-;; ----------------------
-
-(deftest lift-t
-  (let [res (atom :nothing)
-        rea (rea/lift inc)]
-
-    ;; run lift reagent
-    (conc/run-many-to-many
-     (m/monadic
-      [out (rea/react! rea 23)]
-      (let [_ (reset! res out)])
-      (conc/print "done")))
-
-    ;; wait
-    (Thread/sleep 10)
-
-    ;; Check result
-    (is (= 24 @res))
     ))
 
 
@@ -534,3 +497,114 @@
     (is (= 23 @res))
     (is (= 24 @ref))
     ))
+
+(deftest post-commit-tt
+  (test-runner/run
+    (m/monadic
+     [ref (conc/new-ref :nein)]
+     [res (rea/react! (rea/>>>
+                       (rea/return 23)
+                       (rea/post-commit
+                        (fn [a]
+                          (m/monadic
+                           (conc/reset ref (inc a)))))) nil)]
+
+     ;; check
+     [r (conc/read ref)]
+     (test-runner/is= 23 res)
+     (test-runner/is= 24 r)
+     )))
+
+
+;; ----------------------
+;; --- Return -----------
+;; ----------------------
+
+(deftest return-t
+  (let [res (atom nil)
+        rea (rea/return :bounty)]
+
+    ;; run read reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea nil)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 20)
+
+    ;; Check result
+    (is (= :bounty @res))
+    ))
+
+(deftest return-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react! (rea/return :bounty) nil)]
+     (test-runner/is= res :bounty)
+     )))
+
+
+;; ----------------------
+;; --- Computed ---------
+;; ----------------------
+
+(deftest computed-t
+  (let [res (atom nil)
+        rea (rea/computed
+             (fn [a]
+               (rea/return (inc a))))]
+
+    ;; run computed reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea 23)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 20)
+
+    ;; Check result
+    (is (= 24 @res))))
+
+(deftest computed-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/computed
+            (fn [a]
+              (rea/return (inc a)))) 23)]
+     (test-runner/is= 24 res)
+     )))
+
+
+;; ----------------------
+;; --- Lift -------------
+;; ----------------------
+
+(deftest lift-t
+  (let [res (atom :nothing)
+        rea (rea/lift inc)]
+
+    ;; run lift reagent
+    (conc/run-many-to-many
+     (m/monadic
+      [out (rea/react! rea 23)]
+      (let [_ (reset! res out)])
+      (conc/print "done")))
+
+    ;; wait
+    (Thread/sleep 10)
+
+    ;; Check result
+    (is (= 24 @res))
+    ))
+
+(deftest lift-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react! (rea/lift inc) 23)]
+     (test-runner/is= 24 res)
+     )))

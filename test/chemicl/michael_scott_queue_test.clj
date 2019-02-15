@@ -59,10 +59,6 @@
      [r3 (msq/try-pop q)]
 
      ;; check
-     (let [r1-42 (= r1 42)
-           r2-42 (= r2 42)
-           r1-23 (= r1 23)
-           r2-23 (= r2 23)])
      (test-runner/is (or (and (= r1 42) (= r2 23))
                          (and (= r1 23) (= r2 42))))
      (test-runner/is= r3 nil)

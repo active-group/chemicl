@@ -8,7 +8,6 @@
 
 
 (defmonadic try-commit [rx]
-  (conc/print "committing" (rx-data/rx->str rx))
   (let [cases (rx-data/rx-cases rx)])
   [succ (cond
           (empty? cases)
@@ -20,8 +19,6 @@
 
           :else
           (kcas/kcas cases))]
-
-  (conc/print "succ in try-commit " (pr-str succ))
 
   ;; perform post commits
   ;; TODO: maybe we want to associate
