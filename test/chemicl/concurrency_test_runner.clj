@@ -350,14 +350,14 @@
               (concat prefix [tid]))
             (keys threads))))
 
-(defn- prefixes [prefix threads]
+(defn- prefixes [prefix threads m-log]
   (when (deadlocked? threads)
     (test/do-report {:type :fail
                      :message (str "Found a deadlock!\n\n"
+                                   "M-log:\n"
+                                   (clojure.string/join "\n" (map pr-str prefix m-log))
                                    "Threads:\n"
-                                   (with-out-str (clojure.pprint/pprint threads))
-                                   "\n\nSchedule:\n"
-                                   (with-out-str (clojure.pprint/pprint prefix)))
+                                   (with-out-str (clojure.pprint/pprint threads)))
                      :expected :no-deadlock
                      :actual :deadlock
                      }))
@@ -385,7 +385,8 @@
   [prefix m]
   (loop [threads {:init (make-thread-state m)}
          pre prefix
-         log []]
+         log []
+         m-log []]
     (if-let [next-tid (first pre)]
       ;; run
       (let [ts (get threads next-tid)
@@ -398,7 +399,8 @@
           (recur
            new-threads
            (rest pre)
-           (conj log next-tid))
+           (conj log next-tid)
+           (conj m-log (thread-state-m ts)))
 
           :done
           (if (= next-tid :init)
@@ -409,10 +411,11 @@
             (recur
              new-threads
              (rest pre)
-             (conj log next-tid)))))
+             (conj log next-tid)
+             (conj m-log (thread-state-m ts))))))
       ;; else done
       [:new-prefixes
-       (prefixes prefix threads)]
+       (prefixes prefix threads m-log)]
       )))
 
 (defn- run- [m]
