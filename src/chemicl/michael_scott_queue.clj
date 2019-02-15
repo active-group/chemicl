@@ -105,7 +105,8 @@
     (if head-node
       (m/monadic
        (let [v (node-value head-node)])
-       (if-not (pred v)
+       [p? (pred v)]
+       (if-not p?
          ;; cas away and continue
          (m/monadic
           [succ (conc/cas (ms-queue-head q) sentinel-node head-node)]

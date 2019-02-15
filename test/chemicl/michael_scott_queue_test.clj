@@ -74,7 +74,7 @@
            (msq/push q 5) ;; odd
            (msq/push q 4) ;; even
            (msq/push q 9) ;; odd
-           (msq/clean-until q even?)
+           (msq/clean-until q (fn [e] (m/return (even? e))))
 
            [r1 (msq/try-pop q)]
            [r2 (msq/try-pop q)]

@@ -156,6 +156,46 @@
      (test-runner/is (= :from-2 r1))
      )))
 
+(deftest swap-twice-tt
+  (testing "two pairs of swaps on the same channel"
+    (test-runner/run
+      (m/monadic
+       ;; init
+       [[ep1 ep2] (channels/new-channel)]
+       [res-1-1 (conc/new-ref :nothing)]
+       [res-1-2 (conc/new-ref :nothing)]
+       [parent (conc/get-current-task)]
+
+       ;; swapper 1
+       (conc/fork
+        (m/monadic
+         #_(test-runner/mark)
+         [r1 (rea/react! (rea/swap ep1) :from-1-1)]
+         [r2 (rea/react! (rea/swap ep1) :from-1-2)]
+         #_(test-runner/unmark)
+
+         (conc/reset res-1-1 r1)
+         (conc/reset res-1-2 r2)
+         (conc/unpark parent nil)
+         ))
+
+       ;; swapper 2
+       #_(test-runner/mark)
+       [r2-1 (rea/react! (rea/swap ep2) :from-2-1)]
+       [r2-2 (rea/react! (rea/swap ep2) :from-2-2)]
+       #_(test-runner/unmark)
+
+       ;; wait for swapper 1
+       (conc/park)
+
+       ;; check
+       [r1-1 (conc/read res-1-1)]
+       [r1-2 (conc/read res-1-2)]
+       (test-runner/is= :from-1-1 r2-1)
+       (test-runner/is= :from-1-2 r2-2)
+       (test-runner/is= :from-2-1 r1-1)
+       (test-runner/is= :from-2-2 r1-2)
+       ))))
 
 ;; ----------------------
 ;; --- Update -----------
