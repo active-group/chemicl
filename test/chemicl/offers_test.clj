@@ -81,7 +81,7 @@
      [cres (o/complete oref :schwenker)]
 
      (test-runner/is (nil? rres))
-     (test-runner/is (= cres (rx-data/empty-rx)))
+     (test-runner/is= (rx-data/failing-rx) cres)
      )))
 
 (deftest rescind-complete-2-t

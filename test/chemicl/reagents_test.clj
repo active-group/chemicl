@@ -197,6 +197,61 @@
        (test-runner/is= :from-2-2 r1-2)
        ))))
 
+(deftest swap-triple-tt
+  (testing "only a single pair of reagents can swap on an endpoint at any time"
+    (test-runner/run
+      (m/monadic
+       #_(conc/print "----")
+       ;; init
+       [[ep1 ep2] (channels/new-channel)]
+       [res-1 (conc/new-ref :nothing)]
+       [res-2 (conc/new-ref :nothing)]
+
+       [parent (conc/get-current-task)]
+
+       ;; swapper 1
+       (conc/fork
+        (m/monadic
+         (test-runner/mark)
+         [res (rea/react! (rea/swap ep1) nil)]
+         #_(conc/print "1 got" res)
+         (test-runner/unmark)
+
+         (conc/reset res-1 res)
+         (conc/unpark parent nil)
+         ))
+
+       ;; swapper 2
+       (conc/fork
+        (m/monadic
+         (test-runner/mark)
+         [res (rea/react! (rea/swap ep1) nil)]
+         #_(conc/print "2 got" res)
+         (test-runner/unmark)
+
+         (conc/reset res-2 res)
+         (conc/unpark parent nil)
+         ))
+
+       ;; swapper on dual endpoint
+       (test-runner/mark)
+       #_(conc/print "3 gogo")
+       [r3 (rea/react! (rea/swap ep2) :bounty)]
+       (test-runner/unmark)
+
+       ;; wait for either swapper 1 or swapper 2
+       #_(conc/print "sleeping")
+       (conc/park)
+
+       ;; check
+       [r1 (conc/read res-1)]
+       [r2 (conc/read res-2)]
+       (test-runner/is (or (= :bounty r1)
+                           (= :bounty r2)))
+       (test-runner/is (not (and (= :bounty r1)
+                                 (= :bounty r2))))
+       ))))
+
 ;; ----------------------
 ;; --- Update -----------
 ;; ----------------------

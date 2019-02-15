@@ -8,23 +8,24 @@
 
 
 (defmonadic try-commit [rx]
-  (let [cases (rx-data/rx-cases rx)])
-  [succ (cond
-          (empty? cases)
-          (m/return true)
+  (whenm (rx-data/live? rx)
+    (let [cases (rx-data/rx-cases rx)])
+    [succ (cond
+            (empty? cases)
+            (m/return true)
 
-          (= 1 (count cases))
-          (let [[r ov nv] (first cases)]
-            (conc/cas r ov nv))
+            (= 1 (count cases))
+            (let [[r ov nv] (first cases)]
+              (conc/cas r ov nv))
 
-          :else
-          (kcas/kcas cases))]
+            :else
+            (kcas/kcas cases))]
 
-  ;; perform post commits
-  ;; TODO: maybe we want to associate
-  ;; post-commit acctions with cases
-  ;; and perform them in unison?
-  (whenm succ
-    (m/sequ_ (rx-data/rx-actions rx)))
+    ;; perform post commits
+    ;; TODO: maybe we want to associate
+    ;; post-commit acctions with cases
+    ;; and perform them in unison?
+    (whenm succ
+      (m/sequ_ (rx-data/rx-actions rx)))
 
-  (m/return succ))
+    (m/return succ)))

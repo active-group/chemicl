@@ -3,7 +3,8 @@
 (defn rx-union [& rxs]
   {:tag ::reaction
    :cases (apply concat (map :cases rxs))
-   :actions (apply concat (map :actions rxs))})
+   :actions (apply concat (map :actions rxs))
+   :live? (every? :live? rxs)})
 
 (defn rx-cases [rx]
   (sort-by (fn [[r _ _]]
@@ -12,6 +13,9 @@
 
 (defn rx-actions [rx]
   (:actions rx))
+
+(defn live? [rx]
+  (:live? rx))
 
 (defn add-cas [rx cas]
   (update rx :cases conj cas))
@@ -24,7 +28,11 @@
 (defn empty-rx []
   {:tag ::reaction
    :cases []
-   :actions []})
+   :actions []
+   :live? true})
+
+(defn failing-rx []
+  (assoc (empty-rx) :live? false))
 
 
 ;; Stringify
