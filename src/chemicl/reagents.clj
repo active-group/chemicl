@@ -278,6 +278,11 @@
   (let [r (upd-ref rea)
         f (upd-fn rea)
         k (upd-k rea)])
+
+  ;; post offer first in order to avoid lost wakeups
+  (refs/add-offer r oref)
+
+  ;; read current value
   [ov (refs/read r)]
   (let [res (f [ov a])])
 
@@ -293,10 +298,8 @@
                             [(refs/ref-data-ref r) ov nv])
                            (rx-data/add-action
                             (refs/rescind-offers r))) oref))
-    ;; else wait on ref by placing offer there and block
-    (m/monadic
-     (refs/add-offer r oref)
-     (m/return :block))))
+    ;; else block
+    (m/return :block)))
 
 (defmonadic try-react-post-commit [rea a rx oref]
   (let [f (post-commit-f rea)
