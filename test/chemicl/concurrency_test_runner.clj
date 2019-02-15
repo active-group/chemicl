@@ -144,7 +144,8 @@
 
           (conc/new-ref-command? m1)
           (let [a (atom (conc/new-ref-command-init m1))]
-            [:continue
+            (recur (c a))
+            #_[:continue
              (update threads tid set-thread-state-m (c a))
              nil])
 
@@ -419,19 +420,23 @@
       )))
 
 (defn- run- [m]
-  (loop [prefixes #{[]}]
+  (loop [prefixes #{[]}
+         ndone 0]
     (when-let [prefix (first prefixes)]
+      (print "\033[1A")
       (print "\033[1A")
       (print "\033[2K\r")
       (print "nprefixes:" (pr-str (count prefixes)))
       (print "\n")
       (print "prefixlength:" (pr-str (count prefix)))
+      (print "\n")
+      (print "ndone:" (pr-str ndone))
       (flush)
       (let [[code arg] (run-with-trace-prefix prefix m)]
         (case code
           :new-prefixes
-          (recur (clojure.set/union (set (rest prefixes)) arg))
+          (recur (clojure.set/union (set (rest prefixes)) arg) ndone)
 
           :done
-          (recur (set (rest prefixes)))))
+          (recur (set (rest prefixes)) (inc ndone))))
       )))
