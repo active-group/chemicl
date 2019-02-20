@@ -6,6 +6,7 @@
    [chemicl.post-commit :as pc]
    [chemicl.kcas :as kcas]
    [chemicl.backoff :as backoff]
+   [chemicl.maybe :as maybe]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
    [active.clojure.monad :as m]))
@@ -52,15 +53,16 @@
 
 ;; state transitions
 
+;; Returns a Maybe Answer
 (defmonadic rescind [oref]
   (backoff/with-exp-backoff
     [o (kcas/read oref)]
     (cond
       (completed? o)
-      (m/return (backoff/done (offer-answer o)))
+      (m/return (backoff/done (maybe/just (offer-answer o))))
 
       (rescinded? o)
-      (m/return (backoff/done nil))
+      (m/return (backoff/done (maybe/nothing)))
 
       (waiting? o)
       (m/monadic
@@ -69,7 +71,7 @@
          ;; unpark
          (m/monadic
           (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)
-          (m/return (backoff/done nil)))
+          (m/return (backoff/done (maybe/nothing))))
          ;; else retry
          (m/return (backoff/retry-backoff))))
 
@@ -77,7 +79,7 @@
       (m/monadic
        [succ (kcas/cas oref o [:rescinded])]
        (if succ
-         (m/return (backoff/done nil))
+         (m/return (backoff/done (maybe/nothing)))
          (m/return (backoff/retry-backoff))))
       )))
 
@@ -101,7 +103,7 @@
   (if succ
     (conc/park)
     ;; else continue
-    (m/return nil)))
+    (m/return (maybe/nothing))))
 
 (defmonadic complete [oref v] ;; v final result, returns a reaction
   [o (kcas/read oref)]

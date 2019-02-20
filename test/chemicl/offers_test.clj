@@ -4,6 +4,7 @@
             [chemicl.concurrency-test-runner :as test-runner]
             [chemicl.reaction-data :as rx-data]
             [chemicl.reactions :as rx]
+            [chemicl.maybe :as maybe :refer [just nothing]]
             [chemicl.kcas :as kcas]
             [clojure.test :as t :refer [deftest testing is]]
             [active.clojure.monad :as m]
@@ -38,8 +39,8 @@
 
      ;; check
      [r1 (conc/read res-1)]
-     (test-runner/is= r1 nil "rescind result must be nil")
-     (test-runner/is= r2 nil "rescind result must be nil")
+     (test-runner/is= r1 (nothing) "rescind result must be nothing")
+     (test-runner/is= r2 (nothing) "rescind result must be nothing")
 
      ;; FIXME: this is based on assumption about offer internals
      [o (conc/read oref)]
@@ -80,7 +81,7 @@
      ;; complete
      [cres (o/complete oref :schwenker)]
 
-     (test-runner/is (nil? rres))
+     (test-runner/is= (nothing) rres)
      (test-runner/is= (rx-data/failing-rx) cres)
      )))
 
@@ -99,7 +100,7 @@
      ;; rescind
      [rres (o/rescind oref)]
 
-     (test-runner/is (= rres :schwenker)))))
+     (test-runner/is (= rres (just :schwenker))))))
 
 (defmacro => [l r]
   `(or (not ~l) ~r))
@@ -139,8 +140,8 @@
 
      ;; check
      [rres (conc/read rescinder-res)]
-     (test-runner/is (=> (not succ) (nil? rres)))
-     (test-runner/is (=> succ (= rres :schwenker)))
+     (test-runner/is (=> (not succ) (= (nothing) rres)))
+     (test-runner/is (=> succ (= rres (just :schwenker))))
      )))
 
 ;; no wait-wait-tt, because wait can only be called by the same thread

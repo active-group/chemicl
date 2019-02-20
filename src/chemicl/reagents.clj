@@ -11,7 +11,8 @@
    [chemicl.reactions :as rx]
    [chemicl.reaction-data :as rx-data]
    [chemicl.backoff :as backoff]
-   [chemicl.monad :as cm :refer [defmonadic whenm]]))
+   [chemicl.monad :as cm :refer [defmonadic whenm]]
+   [chemicl.maybe :as maybe :refer [maybe-case just nothing]]))
 
 
 ;; -----------------------------------------------
@@ -350,8 +351,11 @@
   (if oref
     (m/monadic
      [ores (offers/rescind oref)]
-     (if ores
-       (m/return ores)
+     (maybe-case ores
+       (just res)
+       (m/return res)
+
+       (nothing)
        (commit-reaction rx a)))
     ;; else
     (commit-reaction rx a)))
@@ -401,13 +405,14 @@
 
 (defmonadic with-offer-continue [reagent a oref backoff-counter]
   [ores (offers/rescind oref)]
-  (if ores
+  (maybe-case ores
     ;; got an answer to return
-    (m/monadic
-     (m/return ores))
+    (just res)
+    (m/return res)
+
     ;; else retry
-    (m/monadic
-     (with-offer reagent a backoff-counter))))
+    (nothing)
+    (with-offer reagent a backoff-counter)))
 
 (defmonadic with-offer [reagent a backoff-counter]
   [oref (offers/new-offer)]
