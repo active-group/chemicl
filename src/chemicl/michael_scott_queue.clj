@@ -91,10 +91,12 @@
   (conc/read (node-next s)))
 
 (defn cursor-value [c]
-  (node-value c))
+  (when c
+    (node-value c)))
 
 (defn cursor-next [c]
-  (conc/read (node-next c)))
+  (whenm c
+    (conc/read (node-next c))))
 
 ;; clean
 
