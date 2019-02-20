@@ -318,8 +318,13 @@
        nil]
       )))
 
+
+;; --- Threads ---------
+
 (defn- filter-values [pred m]
   (filter (comp pred second) m))
+
+;; predicates on thread states
 
 (defn- active? [ts]
   (> (thread-state-counter ts) 0))
@@ -338,6 +343,11 @@
       false
       )))
 
+(defn- stays-inside-trace-period? [ts]
+  (not (leaves-trace-period? ts)))
+
+;; thread maps
+
 (defn- deadlocked? [threads]
   (let [active (filter-values active? threads)]
     (and (> (count threads) 0)
@@ -345,6 +355,91 @@
 
 (defn- inside-trace-period? [threads]
   (every? marked? (vals threads)))
+
+(defn- schedulable-threads [threads]
+  (let [active-threads (filter-values active? threads)
+        active+staying-traced-threads (filter-values
+                                       stays-inside-trace-period?
+                                       active-threads)]
+    (if (and (inside-trace-period? threads)
+             (not-empty active+staying-traced-threads))
+      active+staying-traced-threads
+      active-threads)))
+
+(test/deftest schedulable-threads-t
+  (let [
+        ;; active, outside trace period
+        t1 (mk-thread-state
+            (m/monadic
+             (conc/print "eins")
+             (conc/print "zwei"))
+            1
+            :unmarked)
+
+        ;; active, inside trace period, stays inside
+        t2 (mk-thread-state
+            (m/monadic
+             (conc/print "eins")
+             (conc/print "zwei"))
+            1
+            :marked)
+
+        ;; active, inside trace period, leaves trace period
+        t3 (mk-thread-state
+            (m/monadic
+             (unmark)
+             (conc/print "zwei"))
+            1
+            :marked)
+
+        ;; inactive, outside trace period
+        t4 (mk-thread-state
+            (m/monadic
+             (conc/print "eins")
+             (conc/print "zwei"))
+            0
+            :unmarked)
+
+        ;; inactive, inside trace period, stays inside
+        t5 (mk-thread-state
+            (m/monadic
+             (conc/print "eins")
+             (conc/print "zwei"))
+            0
+            :marked)
+
+        ;; inactive, inside trace period, leaves trace period
+        t6 (mk-thread-state
+            (m/monadic
+             (unmark)
+             (conc/print "zwei"))
+            0
+            :marked)
+
+        ;; untraced, both active
+        sts1 (schedulable-threads {1 t1 11 t1})
+
+        ;; untraced, both active
+        sts2 (schedulable-threads {1 t1 3 t2})
+
+        ;; untraced, 1 active
+        sts3 (schedulable-threads {1 t1 4 t4})
+
+        ;; traced, 3 wants to leave -> only 1
+        sts4 (schedulable-threads {2 t2 3 t3})
+
+        ;; traced, both staying
+        sts5 (schedulable-threads {2 t2 22 t2})
+        ]
+    (test/is (= [1 11] (map first sts1)))
+    (test/is (= [1 3] (map first sts2)))
+    (test/is (= [1] (map first sts3)))
+    (test/is (= [2] (map first sts4)))
+    (test/is (= [2 22] (map first sts5)))
+    ))
+
+
+;; --- Breadth-first search test runner ---------
 
 (defn- glue [prefix threads]
   (set (map (fn [tid]
@@ -440,3 +535,71 @@
           :done
           (recur (set (rest prefixes)) (inc ndone))))
       )))
+
+
+;; --- Random depth-first-search test runner ---------
+
+(defn random-thread [threads]
+  (rand-nth (schedulable-threads threads)))
+
+(defn run-randomized [m]
+  (loop [threads {:init (make-thread-state m)}
+         log []]
+
+    (when (deadlocked? threads)
+      (test/do-report {:type :fail
+                       :message (str "Found a deadlock!\n\n"
+                                     "Threads:\n"
+                                     (with-out-str (clojure.pprint/pprint threads)))
+                       :expected :no-deadlock
+                       :actual :deadlock
+                       }))
+
+    (if-let [[tid ts] (random-thread threads)]
+      ;; run
+      (let [[code new-threads return-val]
+            (enact tid (thread-state-m ts) log threads)]
+        (case code
+          :continue ;; this thread is not yet finished
+          (recur new-threads (conj log tid))
+
+          :done ;; this thread is finished
+          (if (= tid :init)
+            ;; initial thread is done
+            ;; we can omit the others and return
+            log
+            ;; else continue with another thread
+            (recur new-threads (conj log tid)))))
+
+      ;; else done
+      log
+      )))
+
+(defn run-randomized-n [n m]
+  (let [logs (atom #{})]
+    (doall 
+     (pmap (fn [m]
+             (let [log (run-randomized m)]
+               (swap! logs conj log)))
+           (repeat n m)))
+    (println "n unique runs:" (pr-str (count @logs)))
+    ))
+
+#_(test/deftest run-randomized-n-t
+  (let [failing-m (m/monadic
+                   [r (conc/new-ref :nothing)]
+
+                   (conc/fork
+                    (m/monadic
+                     (mark)
+                     (conc/reset r :one)
+                     (unmark)))
+
+                   (mark)
+                   (conc/reset r :two)
+                   (unmark)
+
+                   [v (conc/read r)]
+                   (is= v :two))]
+    (run-randomized-n 10 failing-m)
+    ))

@@ -124,7 +124,7 @@
     ))
 
 (deftest swap-tt
-  (test-runner/run
+  (test-runner/run-randomized-n 1000000
     (m/monadic
      ;; init
      [[ep1 ep2] (channels/new-channel)]
@@ -158,7 +158,7 @@
 
 (deftest swap-twice-tt
   (testing "two pairs of swaps on the same channel"
-    (test-runner/run
+    (test-runner/run-randomized-n 900000
       (m/monadic
        ;; init
        [[ep1 ep2] (channels/new-channel)]
@@ -169,10 +169,10 @@
        ;; swapper 1
        (conc/fork
         (m/monadic
-         #_(test-runner/mark)
+         (test-runner/mark)
          [r1 (rea/react! (rea/swap ep1) :from-1-1)]
          [r2 (rea/react! (rea/swap ep1) :from-1-2)]
-         #_(test-runner/unmark)
+         (test-runner/unmark)
 
          (conc/reset res-1-1 r1)
          (conc/reset res-1-2 r2)
@@ -180,10 +180,10 @@
          ))
 
        ;; swapper 2
-       #_(test-runner/mark)
+       (test-runner/mark)
        [r2-1 (rea/react! (rea/swap ep2) :from-2-1)]
        [r2-2 (rea/react! (rea/swap ep2) :from-2-2)]
-       #_(test-runner/unmark)
+       (test-runner/unmark)
 
        ;; wait for swapper 1
        (conc/park)
@@ -199,9 +199,8 @@
 
 (deftest swap-triple-tt
   (testing "only a single pair of reagents can swap on an endpoint at any time"
-    (test-runner/run
+    (test-runner/run-randomized-n 90000
       (m/monadic
-       #_(conc/print "----")
        ;; init
        [[ep1 ep2] (channels/new-channel)]
        [res-1 (conc/new-ref :nothing)]
@@ -247,9 +246,9 @@
        [r1 (conc/read res-1)]
        [r2 (conc/read res-2)]
        (test-runner/is (or (= :bounty r1)
-                           (= :bounty r2)))
+                           (= :bounty r2)) "One or both must have found bounty")
        (test-runner/is (not (and (= :bounty r1)
-                                 (= :bounty r2))))
+                                 (= :bounty r2))) "Not both must find bounty")
        ))))
 
 ;; ----------------------
