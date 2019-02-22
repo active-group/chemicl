@@ -251,6 +251,53 @@
                                  (= :bounty r2))) "Not both must find bounty")
        ))))
 
+(deftest swap-then-upd-tt
+  (test-runner/run-randomized-n
+   399999
+   (m/monadic
+    ;; init
+    [[ep1 ep2] (channels/new-channel)]
+    [r-1 (refs/new-ref :nothing)]
+    [r-2 (refs/new-ref :nothing)]
+    [res-1 (conc/new-ref :nothing)]
+
+    [parent (conc/get-current-task)]
+
+    ;; swap-then-upd 1
+    (conc/fork
+     (m/monadic
+      (test-runner/mark)
+      [res (rea/react! (rea/>>>
+                        (rea/swap ep1)
+                        (rea/upd r-1 (fn [[ov a]]
+                                       [a 42]))) :hi-from-1)]
+      (test-runner/unmark)
+
+      (conc/reset res-1 res)
+      (conc/unpark parent nil)))
+
+    ;; swap-then-upd 2
+    (test-runner/mark)
+    [res (rea/react! (rea/>>>
+                      (rea/swap ep2)
+                      (rea/upd r-2 (fn [[ov a]]
+                                     [a 23]))) :hi-from-2)]
+    (test-runner/unmark)
+
+    ;; wait for 1
+    (conc/park)
+
+    [r1 (refs/read r-1)]
+    [r2 (refs/read r-2)]
+    [retv-1 (conc/read res-1)]
+    (let [retv-2 res])
+
+    (test-runner/is= :hi-from-2 r1)
+    (test-runner/is= :hi-from-1 r2)
+    (test-runner/is= 42 retv-1)
+    (test-runner/is= 23 retv-2)
+    )))
+
 ;; ----------------------
 ;; --- Update -----------
 ;; ----------------------
