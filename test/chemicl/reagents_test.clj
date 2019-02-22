@@ -525,6 +525,61 @@
 ;; --- Choose -----------
 ;; ----------------------
 
+(defmacro => [l r]
+  `(or (not ~l) ~r))
+
+(deftest choose-tt
+  (test-runner/run-randomized-n
+   99999
+   (m/monadic
+    ;; init
+    [lref (refs/new-ref :nothing)]
+    [rref (refs/new-ref :nothing)]
+
+    ;; go left
+    (conc/fork
+     (test-runner/with-mark
+       (rea/react! (rea/upd lref (fn [_] [:go nil])) nil)))
+
+    ;; go right
+    (conc/fork
+     (test-runner/with-mark
+       (rea/react! (rea/upd rref (fn [_] [:go nil])) nil)))
+
+    ;; chooser
+    [res (test-runner/with-mark
+           (rea/react!
+            (rea/choose
+             (rea/upd lref
+                      (fn [[ov a]]
+                        (when (= :go ov)
+                          [:done :left])))
+             (rea/upd rref
+                      (fn [[ov a]]
+                        (when (= :go ov)
+                          [:done :right])))) nil))]
+
+    ;; check
+    [left (refs/read lref)]
+    [right (refs/read rref)]
+
+    (test-runner/is (=> (= res :left)
+                        (= left :done))
+                    (str "When left won the race, lref must be :done but is " left))
+
+    (test-runner/is (=> (= res :left)
+                        (not= right :done))
+                    (str "When left won the race, rref must not be :done but is " right))
+
+    (test-runner/is (=> (= res :right)
+                        (= right :done))
+                    (str "When right won the race, rref must be :done but is " right))
+
+    (test-runner/is (=> (= res :right)
+                        (not= left :done))
+                    (str "When right won the race, lref must be :nothing but is " left))
+    )))
+
 (deftest choose-t
   (let [res-1-2 (atom :nothing)
         res-2-1 (atom :nothing)
