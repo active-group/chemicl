@@ -27,6 +27,15 @@
   (run- m))
 
 
+(defmacro with-mark
+  [& ms]
+  `(m/monadic
+    (mark)
+    [res# (m/monadic ~@ms)]
+    (unmark)
+    (m/return res#)))
+
+
 ;; --- Special commands for testing ---------
 
 (acr/define-record-type MarkCommand
