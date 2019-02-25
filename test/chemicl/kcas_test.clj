@@ -120,13 +120,6 @@
     ;; wait
     (Thread/sleep 200)
 
-    (println "succ 1" @succ-1)
-    (println "succ 2" @succ-2)
-
-    (mapv println cs-1)
-    (println "---")
-    (mapv println cs-2)
-
     ;; One must succeed
     (is (or @succ-1
             @succ-2))
@@ -136,12 +129,11 @@
   ;; run test
   (test-runner/run
    (m/monadic
-    (conc/print "---")
-    (let [[cs-1 cs-2] (mk-cas-list-pair! 3)])
-
     ;; return values
     [succ-1 (conc/new-ref false)]
     [succ-2 (conc/new-ref false)]
+
+    (let [[cs-1 cs-2] (mk-cas-list-pair! 3)])
 
     ;; self
     [parent (conc/get-current-task)]

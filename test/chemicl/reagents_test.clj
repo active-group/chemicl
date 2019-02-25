@@ -124,7 +124,7 @@
     ))
 
 (deftest swap-tt
-  (test-runner/run-randomized-n 1000000
+  (test-runner/run-randomized-n 1000
     (m/monadic
      ;; init
      [[ep1 ep2] (channels/new-channel)]
@@ -158,7 +158,7 @@
 
 (deftest swap-twice-tt
   (testing "two pairs of swaps on the same channel"
-    (test-runner/run-randomized-n 900000
+    (test-runner/run-randomized-n 1000
       (m/monadic
        ;; init
        [[ep1 ep2] (channels/new-channel)]
@@ -199,7 +199,7 @@
 
 (deftest swap-triple-tt
   (testing "only a single pair of reagents can swap on an endpoint at any time"
-    (test-runner/run-randomized-n 90000
+    (test-runner/run-randomized-n 1000
       (m/monadic
        ;; init
        [[ep1 ep2] (channels/new-channel)]
@@ -253,7 +253,7 @@
 
 (deftest swap-then-upd-tt
   (test-runner/run-randomized-n
-   399999
+   1000
    (m/monadic
     ;; init
     [[ep1 ep2] (channels/new-channel)]
@@ -530,7 +530,7 @@
 
 (deftest choose-tt
   (test-runner/run-randomized-n
-   99999
+   1000
    (m/monadic
     ;; init
     [lref (refs/new-ref :nothing)]
