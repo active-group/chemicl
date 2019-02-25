@@ -6,7 +6,85 @@
    [active.clojure.monad :as m]
    [chemicl.monad :refer [defmonadic whenm]]))
 
-(defn uuid [] (str (java.util.UUID/randomUUID)))
+(declare make-fork-command)
+(declare make-call-cc)
+(declare make-throw)
+(declare make-exit-command)
+(declare make-new-ref-command)
+(declare make-read-command)
+(declare make-reset-command)
+(declare make-cas-command)
+(declare make-timeout-command)
+(declare make-get-current-task-command)
+(declare make-park-command)
+(declare make-unpark-command)
+
+
+;; --- API ---------
+
+;; This namespace provides a simple language for multithreaded programming.
+;; Programs are monadic. You can use the usual active.clojure.monad tools.
+
+(defn fork
+  "Run a monadic program asynchronously"
+  [m] (make-fork-command m))
+
+(defn call-cc
+  "Call a function with the current continuation as an argument"
+  [f] (make-call-cc f))
+
+(defn throw
+  "Divert execution to the given continuation"
+  [k v] (make-throw k v))
+
+(defn exit
+  "Quit the current thread"
+  [] (make-exit-command))
+
+;; The concurrency language is shared-memory-based.
+
+(defn new-ref
+  "Create a new shared-memory cell"
+  [init] (make-new-ref-command init))
+
+(defn read
+  "Read the value inside a shared-memory cell"
+  [ref] (make-read-command ref))
+
+(defn reset
+  "Set the value inside a shared-memory cell"
+  [ref nv] (make-reset-command ref nv))
+
+(defn cas
+  "Compare-and-set the value inside a shared-memory cell.
+  Returns falsey iff the cas failed."
+  [ref ov nv] (make-cas-command ref ov nv))
+
+;; Timeout
+
+(defn timeout
+  "Sleep for msec"
+  [msec] (make-timeout-command msec))
+
+;; Native Parking & Unparking
+;; The following three commands provide a convenient parking
+;; and unparking scheme. When performance is paramount, you
+;; should use `call-cc` and `throw` instead.
+
+(defn get-current-task
+  "Obtain the current task handle, which you can call `unpark` on"
+  [] (make-get-current-task-command))
+
+(defn park
+  "Park the current thread"
+  [] (make-park-command))
+
+(defn unpark
+  "Unpark a given thread and optionally pass a value to it."
+  [task value] (make-unpark-command task value))
+
+
+;; -------------------------------------------------------------
 
 ;; --- Task locks ----------
 
@@ -82,17 +160,17 @@
    cont))
 
 
-
-
-
 ;; --- Cont concurrency monad: commands ---------
+
+(acr/define-record-type ForkCommand
+  (make-fork-command m)
+  fork-command?
+  [m fork-command-monad])
 
 (acr/define-record-type CallCC
   (make-call-cc f)
   call-cc?
   [f call-cc-function])
-
-(defn call-cc [f] (make-call-cc f))
 
 (acr/define-record-type Throw
   (make-throw k v)
@@ -100,7 +178,26 @@
   [k throw-k
    v throw-value])
 
-(defn throw [k v] (make-throw k v))
+(acr/define-record-type ExitCommand
+  (make-exit-command)
+  exit-command?
+  [])
+
+(acr/define-record-type NewRefCommand
+  (make-new-ref-command init)
+  new-ref-command?
+  [init new-ref-command-init])
+
+(acr/define-record-type ReadCommand
+  (make-read-command ref)
+  read-command?
+  [ref read-command-ref])
+
+(acr/define-record-type ResetCommand
+  (make-reset-command ref nv)
+  reset-command?
+  [ref reset-command-ref
+   nv reset-command-new-value])
 
 (acr/define-record-type CASCommand
   (make-cas-command ref ov nv)
@@ -109,76 +206,26 @@
    ov cas-command-old-value
    nv cas-command-new-value])
 
-(defn cas [ref ov nv] (make-cas-command ref ov nv))
-
-(acr/define-record-type ResetCommand
-  (make-reset-command ref nv)
-  reset-command?
-  [ref reset-command-ref
-   nv reset-command-new-value])
-
-(defn reset [ref nv] (make-reset-command ref nv))
-
-(acr/define-record-type ReadCommand
-  (make-read-command ref)
-  read-command?
-  [ref read-command-ref])
-
-(defn read [ref] (make-read-command ref))
-
-(acr/define-record-type NewRefCommand
-  (make-new-ref-command init)
-  new-ref-command?
-  [init new-ref-command-init])
-
-(defn new-ref [init] (make-new-ref-command init))
-
-;; parking and unparking
-
-(acr/define-record-type ParkCommand
-  (make-park-command)
-  park-command?
-  [])
-
-(defn park [] (make-park-command))
-
-(acr/define-record-type UnparkCommand
-  (make-unpark-command task value)
-  unpark-command?
-  [task unpark-command-task
-   value unpark-command-value])
-
-(defn unpark [task value] (make-unpark-command task value))
-
-(acr/define-record-type ForkCommand
-  (make-fork-command m)
-  fork-command?
-  [m fork-command-monad])
-
-(defn fork [m] (make-fork-command m))
+(acr/define-record-type TimeoutCommand
+  (make-timeout-command msec)
+  timeout-command?
+  [msec timeout-command-msec])
 
 (acr/define-record-type GetCurrentTaskCommand
   (make-get-current-task-command)
   get-current-task-command?
   [])
 
-(defn get-current-task [] (make-get-current-task-command))
-
-(acr/define-record-type ExitCommand
-  (make-exit-command)
-  exit-command?
+(acr/define-record-type ParkCommand
+  (make-park-command)
+  park-command?
   [])
 
-(defn exit [] (make-exit-command))
-
-;; Timeout
-
-(acr/define-record-type TimeoutCommand
-  (make-timeout-command msec)
-  timeout-command?
-  [msec timeout-command-msec])
-
-(defn timeout [msec] (make-timeout-command msec))
+(acr/define-record-type UnparkCommand
+  (make-unpark-command task value)
+  unpark-command?
+  [task unpark-command-task
+   value unpark-command-value])
 
 ;; Debugging only
 
@@ -243,7 +290,6 @@
           (throw? m1)
           (let [k (throw-k m1)
                 v (throw-value m1)]
-            (println "throwing execution to" (pr-str (k v)))
             (recur (k v) task))
 
           ;; Read & CAS & Reset
@@ -276,12 +322,9 @@
           (make-park-status c)
 
           (unpark-command? m1)
-          (do 
-            (println "UNPARKING")
-            (println (unpark-command-task m1))
-            (make-unpark-status
-             c (unpark-command-task m1)
-             (unpark-command-value m1)))
+          (make-unpark-status
+           c (unpark-command-task m1)
+           (unpark-command-value m1))
 
           (fork-command? m1)
           (make-fork-status c (fork-command-monad m1))
@@ -353,7 +396,6 @@
       (throw? m)
       (let [k (throw-k m)
             v (throw-value m)]
-        (println "throwing execution to" (pr-str (k v)))
         (recur (k v) task))
 
       ;; debugging only
@@ -382,8 +424,6 @@
           (when-let [mm (block-task!
                          task
                          (park-status-continuation res))]
-            (println "PARK " (pr-str task))
-            ;; is this going to overflow the stack??
             (run-many-to-many mm task))
 
           (unpark-status? res)
