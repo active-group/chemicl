@@ -29,25 +29,24 @@
         ]
 
     ;; Run initializer
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [[ep-1 ep-2] (channels/new-channel)]
       (let [_ (reset! ep-1-atom ep-1)])
       (let [_ (reset! ep-2-atom ep-2)])
-      (m/return nil)))
+      (m/return nil))
 
     (Thread/sleep 20)
 
     ;; Run swap-1
-    (conc/run-many-to-many
-     (swapper @ep-1-atom :from-1 res-1))
+    (conc/run
+      (swapper @ep-1-atom :from-1 res-1))
 
     ;; Let swap-1 dangle for a while
     (Thread/sleep 100)
 
     ;; Run swap-2
-    (conc/run-many-to-many
-     (swapper @ep-2-atom :from-2 res-2))
+    (conc/run
+      (swapper @ep-2-atom :from-2 res-2))
 
     ;; Wait
     (Thread/sleep 20)
@@ -85,8 +84,7 @@
         ]
 
     ;; Run initializer
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [[ep-1 ep-2] (channels/new-channel)]
       (let [_ (reset! ep-1-atom ep-1)])
       (let [_ (reset! ep-2-atom ep-2)])
@@ -96,20 +94,20 @@
       (let [_ (reset! ref-1-atom ref-1)])
       (let [_ (reset! ref-2-atom ref-2)])
 
-      (m/return nil)))
+      (m/return nil))
 
     (Thread/sleep 20)
 
     ;; Run swap-1
-    (conc/run-many-to-many
-     (swapper @ep-1-atom 1 res-res-1 mem-res-1 @ref-1-atom))
+    (conc/run
+      (swapper @ep-1-atom 1 res-res-1 mem-res-1 @ref-1-atom))
 
     ;; Let swap-1 dangle for a while
     (Thread/sleep 100)
 
     ;; Run swap-2
-    (conc/run-many-to-many
-     (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
+    (conc/run
+      (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
 
     ;; Wait
     (Thread/sleep 50)
@@ -124,132 +122,135 @@
     ))
 
 (deftest swap-tt
-  (test-runner/run-randomized-n 1000
-    (m/monadic
-     ;; init
-     [[ep1 ep2] (channels/new-channel)]
-     [res-1 (conc/new-ref :nothing)]
-     [parent (conc/get-current-task)]
+  (test-runner/run-randomized-n
+   1000
+   (m/monadic
+    ;; init
+    [[ep1 ep2] (channels/new-channel)]
+    [res-1 (conc/new-ref :nothing)]
+    [parent (conc/get-current-task)]
 
-     ;; swapper 1
-     (conc/fork
-      (m/monadic
-       (test-runner/mark)
-       [res (rea/react! (rea/swap ep1) :from-1)]
-       (test-runner/unmark)
+    ;; swapper 1
+    (conc/fork
+     (m/monadic
+      (test-runner/mark)
+      [res (rea/react! (rea/swap ep1) :from-1)]
+      (test-runner/unmark)
 
-       (conc/reset res-1 res)
-       (conc/unpark parent nil)
-       ))
+      (conc/reset res-1 res)
+      (conc/unpark parent nil)
+      ))
 
-     ;; swapper 2
-     (test-runner/mark)
-     [r2 (rea/react! (rea/swap ep2) :from-2)]
-     (test-runner/unmark)
+    ;; swapper 2
+    (test-runner/mark)
+    [r2 (rea/react! (rea/swap ep2) :from-2)]
+    (test-runner/unmark)
 
-     ;; wait for swapper 1
-     (conc/park)
+    ;; wait for swapper 1
+    (conc/park)
 
-     ;; check
-     [r1 (conc/read res-1)]
-     (test-runner/is (= :from-1 r2))
-     (test-runner/is (= :from-2 r1))
-     )))
+    ;; check
+    [r1 (conc/read res-1)]
+    (test-runner/is (= :from-1 r2))
+    (test-runner/is (= :from-2 r1))
+    )))
 
 (deftest swap-twice-tt
   (testing "two pairs of swaps on the same channel"
-    (test-runner/run-randomized-n 1000
-      (m/monadic
-       ;; init
-       [[ep1 ep2] (channels/new-channel)]
-       [res-1-1 (conc/new-ref :nothing)]
-       [res-1-2 (conc/new-ref :nothing)]
-       [parent (conc/get-current-task)]
+    (test-runner/run-randomized-n
+     1000
+     (m/monadic
+      ;; init
+      [[ep1 ep2] (channels/new-channel)]
+      [res-1-1 (conc/new-ref :nothing)]
+      [res-1-2 (conc/new-ref :nothing)]
+      [parent (conc/get-current-task)]
 
-       ;; swapper 1
-       (conc/fork
-        (m/monadic
-         (test-runner/mark)
-         [r1 (rea/react! (rea/swap ep1) :from-1-1)]
-         [r2 (rea/react! (rea/swap ep1) :from-1-2)]
-         (test-runner/unmark)
+      ;; swapper 1
+      (conc/fork
+       (m/monadic
+        (test-runner/mark)
+        [r1 (rea/react! (rea/swap ep1) :from-1-1)]
+        [r2 (rea/react! (rea/swap ep1) :from-1-2)]
+        (test-runner/unmark)
 
-         (conc/reset res-1-1 r1)
-         (conc/reset res-1-2 r2)
-         (conc/unpark parent nil)
-         ))
+        (conc/reset res-1-1 r1)
+        (conc/reset res-1-2 r2)
+        (conc/unpark parent nil)
+        ))
 
-       ;; swapper 2
-       (test-runner/mark)
-       [r2-1 (rea/react! (rea/swap ep2) :from-2-1)]
-       [r2-2 (rea/react! (rea/swap ep2) :from-2-2)]
-       (test-runner/unmark)
+      ;; swapper 2
+      (test-runner/mark)
+      [r2-1 (rea/react! (rea/swap ep2) :from-2-1)]
+      [r2-2 (rea/react! (rea/swap ep2) :from-2-2)]
+      (test-runner/unmark)
 
-       ;; wait for swapper 1
-       (conc/park)
+      ;; wait for swapper 1
+      (conc/park)
 
-       ;; check
-       [r1-1 (conc/read res-1-1)]
-       [r1-2 (conc/read res-1-2)]
-       (test-runner/is= :from-1-1 r2-1)
-       (test-runner/is= :from-1-2 r2-2)
-       (test-runner/is= :from-2-1 r1-1)
-       (test-runner/is= :from-2-2 r1-2)
-       ))))
+      ;; check
+      [r1-1 (conc/read res-1-1)]
+      [r1-2 (conc/read res-1-2)]
+      (test-runner/is= :from-1-1 r2-1)
+      (test-runner/is= :from-1-2 r2-2)
+      (test-runner/is= :from-2-1 r1-1)
+      (test-runner/is= :from-2-2 r1-2)
+      ))))
 
 (deftest swap-triple-tt
   (testing "only a single pair of reagents can swap on an endpoint at any time"
-    (test-runner/run-randomized-n 1000
-      (m/monadic
-       ;; init
-       [[ep1 ep2] (channels/new-channel)]
-       [res-1 (conc/new-ref :nothing)]
-       [res-2 (conc/new-ref :nothing)]
+    (test-runner/run-randomized-n
+     1000
+     (m/monadic
+      ;; init
+      [[ep1 ep2] (channels/new-channel)]
+      [res-1 (conc/new-ref :nothing)]
+      [res-2 (conc/new-ref :nothing)]
 
-       [parent (conc/get-current-task)]
+      [parent (conc/get-current-task)]
 
-       ;; swapper 1
-       (conc/fork
-        (m/monadic
-         (test-runner/mark)
-         [res (rea/react! (rea/swap ep1) nil)]
-         #_(conc/print "1 got" res)
-         (test-runner/unmark)
+      ;; swapper 1
+      (conc/fork
+       (m/monadic
+        (test-runner/mark)
+        [res (rea/react! (rea/swap ep1) nil)]
+        #_(conc/print "1 got" res)
+        (test-runner/unmark)
 
-         (conc/reset res-1 res)
-         (conc/unpark parent nil)
-         ))
+        (conc/reset res-1 res)
+        (conc/unpark parent nil)
+        ))
 
-       ;; swapper 2
-       (conc/fork
-        (m/monadic
-         (test-runner/mark)
-         [res (rea/react! (rea/swap ep1) nil)]
-         #_(conc/print "2 got" res)
-         (test-runner/unmark)
+      ;; swapper 2
+      (conc/fork
+       (m/monadic
+        (test-runner/mark)
+        [res (rea/react! (rea/swap ep1) nil)]
+        #_(conc/print "2 got" res)
+        (test-runner/unmark)
 
-         (conc/reset res-2 res)
-         (conc/unpark parent nil)
-         ))
+        (conc/reset res-2 res)
+        (conc/unpark parent nil)
+        ))
 
-       ;; swapper on dual endpoint
-       (test-runner/mark)
-       #_(conc/print "3 gogo")
-       [r3 (rea/react! (rea/swap ep2) :bounty)]
-       (test-runner/unmark)
+      ;; swapper on dual endpoint
+      (test-runner/mark)
+      #_(conc/print "3 gogo")
+      [r3 (rea/react! (rea/swap ep2) :bounty)]
+      (test-runner/unmark)
 
-       ;; wait for either swapper 1 or swapper 2
-       #_(conc/print "sleeping")
-       (conc/park)
+      ;; wait for either swapper 1 or swapper 2
+      #_(conc/print "sleeping")
+      (conc/park)
 
-       ;; check
-       [r1 (conc/read res-1)]
-       [r2 (conc/read res-2)]
-       (test-runner/is (or (= :bounty r1)
-                           (= :bounty r2)) "One or both must have found bounty")
-       (test-runner/is (not (and (= :bounty r1)
-                                 (= :bounty r2))) "Not both must find bounty")
-       ))))
+      ;; check
+      [r1 (conc/read res-1)]
+      [r2 (conc/read res-2)]
+      (test-runner/is (or (= :bounty r1)
+                          (= :bounty r2)) "One or both must have found bounty")
+      (test-runner/is (not (and (= :bounty r1)
+                                (= :bounty r2))) "Not both must find bounty")
+      ))))
 
 (deftest swap-then-upd-tt
   (test-runner/run-randomized-n
@@ -307,8 +308,7 @@
         mem-res (atom nil)]
 
     ;; run
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [ts (refs/new-ref 1337)]
 
       [res (rea/react!
@@ -319,7 +319,7 @@
       [ts-val (refs/read ts)]
       (let [_ (reset! res-res res)
             _ (reset! mem-res ts-val)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 20)
@@ -333,8 +333,7 @@
         mem-res (atom nil)]
 
     ;; run
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [ts (refs/new-ref 1337)]
 
       [res (rea/react!
@@ -346,7 +345,7 @@
       [ts-val (refs/read ts)]
       (let [_ (reset! res-res res)
             _ (reset! mem-res ts-val)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 20)
@@ -368,20 +367,18 @@
                                       [:starter-was-here :starter-res])))]
 
     ;; Run initializer
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [ts (refs/new-ref :nobody-was-here)]
       (let [_ (reset! ts-atom ts)])
-      (m/return nil)))
+      (m/return nil))
 
     (Thread/sleep 20)
 
     ;; Run blocker
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [res (rea/react! (blocking-upd @ts-atom) nil)]
       (let [_ (reset! blocker-res res)])
-      (conc/print "blocker done")))
+      (conc/print "blocker done"))
 
     ;; Check that blocker was not run yet
     (Thread/sleep 20)
@@ -389,11 +386,10 @@
     (is (= @(refs/ref-data-ref @ts-atom) :nobody-was-here))
 
     ;; Run starter
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [res (rea/react! (other-upd @ts-atom) nil)]
       (let [_ (reset! starter-res res)])
-      (conc/print "starter done"))) 
+      (conc/print "starter done")) 
 
     ;; Check that blocking upd succeeded
     (Thread/sleep 20)
@@ -414,36 +410,36 @@
 
     ;; Run
     (test-runner/run
-     (m/monadic
-      [parent (conc/get-current-task)]
-      [blocker-res (conc/new-ref :nothing)]
-      [r (refs/new-ref :nobody-was-here)]
+      (m/monadic
+       [parent (conc/get-current-task)]
+       [blocker-res (conc/new-ref :nothing)]
+       [r (refs/new-ref :nobody-was-here)]
 
-      ;; run blocking-upd
-      (conc/fork
-       (m/monadic
-        (test-runner/mark)
-        [res (rea/react! (blocking-upd r) nil)]
-        (test-runner/unmark)
+       ;; run blocking-upd
+       (conc/fork
+        (m/monadic
+         (test-runner/mark)
+         [res (rea/react! (blocking-upd r) nil)]
+         (test-runner/unmark)
 
-        (conc/reset blocker-res res)
-        (conc/unpark parent nil)
-        ))
+         (conc/reset blocker-res res)
+         (conc/unpark parent nil)
+         ))
 
-      ;; run other-upd
-      (test-runner/mark)
-      (rea/react! (other-upd r) nil)
-      (test-runner/unmark)
+       ;; run other-upd
+       (test-runner/mark)
+       (rea/react! (other-upd r) nil)
+       (test-runner/unmark)
 
-      ;; sleep
-      (conc/park)
+       ;; sleep
+       (conc/park)
 
-      ;; check results
-      [blr (conc/read blocker-res)]
-      [rr (refs/read r)]
-      (test-runner/is= blr :blocker-res)
-      (test-runner/is= rr :blocker-was-here)
-      ))))
+       ;; check results
+       [blr (conc/read blocker-res)]
+       [rr (refs/read r)]
+       (test-runner/is= blr :blocker-res)
+       (test-runner/is= rr :blocker-was-here)
+       ))))
 
 
 ;; ----------------------
@@ -455,14 +451,13 @@
         mem-res (atom nil)]
 
     ;; run cas reagent
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [r (refs/new-ref :nothing)]
       [out (rea/react! (rea/cas r :nothing :something) nil)]
       (let [_ (reset! res-res out)])
       [mem (refs/read r)]
       (let [_ (reset! mem-res mem)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 20)
@@ -493,14 +488,13 @@
         mem-res (atom nil)]
 
     ;; run read reagent
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [r (refs/new-ref :nothing)]
       [out (rea/react! (rea/read r) nil)]
       (let [_ (reset! res-res out)])
       [mem (refs/read r)]
       (let [_ (reset! mem-res mem)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 20)
@@ -590,11 +584,10 @@
         ref (atom nil)
 
         ;; initialize
-        _ (conc/run-many-to-many
-           (m/monadic
+        _ (conc/run
             [r (refs/new-ref :bounty)]
             (let [_ (reset! ref r)])
-            (m/return nil)))
+            (m/return nil))
 
         _ (Thread/sleep 20)
 
@@ -611,11 +604,10 @@
 
     ;; --- Neither blocks
     ;; run rea-1-2
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea-1-2 nil)]
       (let [_ (reset! res-1-2 out)])
-      (conc/print "done-1-2")))
+      (conc/print "done-1-2"))
 
     ;; wait
     (Thread/sleep 10)
@@ -624,11 +616,10 @@
     (is (= :one @res-1-2))
 
     ;; run rea-2-1
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea-2-1 nil)]
       (let [_ (reset! res-2-1 out)])
-      (conc/print "done-2-1")))
+      (conc/print "done-2-1"))
 
     ;; wait
     (Thread/sleep 10)
@@ -639,11 +630,10 @@
 
     ;; --- Right blocks
     ;; run rea-1-3
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea-1-3 nil)]
       (let [_ (reset! res-1-3 out)])
-      (conc/print "done-1-3")))
+      (conc/print "done-1-3"))
 
     ;; wait
     (Thread/sleep 10)
@@ -653,11 +643,10 @@
 
     ;; --- Left blocks
     ;; run rea-3-1
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea-3-1 nil)]
       (let [_ (reset! res-3-1 out)])
-      (conc/print "done-3-1")))
+      (conc/print "done-3-1"))
 
     ;; wait
     (Thread/sleep 40)
@@ -668,11 +657,10 @@
 
     ;; --- Both block
     ;; run rea-3-1
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea-3-4 nil)]
       (let [_ (reset! res-3-4 out)])
-      (conc/print "done-3-4")))
+      (conc/print "done-3-4"))
 
     ;; wait
     (Thread/sleep 1000)
@@ -697,11 +685,10 @@
                  (conc/reset ref (inc a))))))]
 
     ;; run reagent
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea nil)]
       (let [_ (reset! res out)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 40)
@@ -738,11 +725,10 @@
         rea (rea/return :bounty)]
 
     ;; run read reagent
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea nil)]
       (let [_ (reset! res out)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 20)
@@ -770,11 +756,10 @@
                (rea/return (inc a))))]
 
     ;; run computed reagent
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea 23)]
       (let [_ (reset! res out)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 20)
@@ -802,11 +787,10 @@
         rea (rea/lift inc)]
 
     ;; run lift reagent
-    (conc/run-many-to-many
-     (m/monadic
+    (conc/run
       [out (rea/react! rea 23)]
       (let [_ (reset! res out)])
-      (conc/print "done")))
+      (conc/print "done"))
 
     ;; wait
     (Thread/sleep 10)

@@ -6,6 +6,7 @@
    [active.clojure.monad :as m]
    [chemicl.monad :refer [defmonadic whenm]]))
 
+(declare run-many-to-many)
 (declare make-fork-command)
 (declare make-call-cc)
 (declare make-throw)
@@ -83,6 +84,15 @@
   "Unpark a given thread and optionally pass a value to it."
   [task value] (make-unpark-command task value))
 
+;; Run the monadic program on a fixed size thread pool with `run`
+
+(defmacro run [& ms]
+  `(run-many-to-many
+    (m/monadic
+     ~@ms
+     )))
+
+
 
 ;; -------------------------------------------------------------
 
@@ -143,12 +153,13 @@
 ;; --- Task abstraction ---------
 
 (acr/define-record-type Task
-  (make-task tl)
+  (make-task tl ret)
   task?
-  [(tl task-lock task-lock-lens)])
+  [(tl task-lock task-lock-lens)
+   (ret task-return-value-ref task-return-value-ref-lens)])
 
 (defn new-task! []
-  (make-task (new-task-lock!)))
+  (make-task (new-task-lock!) (atom nil)))
 
 (defn signal-task! [t v]
   (signal-on-task-lock!
@@ -264,14 +275,14 @@
    m fork-status-monad])
 
 (acr/define-record-type ExitStatus
-  (make-exit-status)
+  (make-exit-status v)
   exit-status?
-  [])
+  [v exit-status-value])
 
 
 ;; --- (Inner) monad runner ---------
 
-(defn run-cont [m task]
+(defn- run-cont [m task]
   (loop [m m
          task task]
     (cond
@@ -333,7 +344,7 @@
           (recur (c task) task)
 
           (exit-command? m1)
-          (make-exit-status)
+          (make-exit-status nil)
 
           ;; Timeout
 
@@ -349,10 +360,11 @@
             (recur (c nil) task))))
 
       (m/free-return? m)
-      (make-exit-status)
+      (make-exit-status
+       (m/free-return-val m))
 
       (new-ref-command? m)
-      (make-exit-status)
+      (make-exit-status nil)
 
       (cas-command? m)
       (compare-and-set! (cas-command-ref m)
@@ -360,14 +372,15 @@
                         (cas-command-new-value m))
 
       (read-command? m)
-      (make-exit-status)
+      (make-exit-status
+       (deref (read-command-ref m)))
 
       (reset-command? m)
       (reset! (reset-command-ref m)
               (reset-command-new-value m))
 
       (park-command? m)
-      (make-exit-status)
+      (make-exit-status nil)
 
       (unpark-command? m)
       ;; beware: continuation is nil, which needs to be handled in outer runner
@@ -382,10 +395,10 @@
 
       (get-current-task-command? m)
       ;; what do you want to do with it mate?
-      (make-exit-status)
+      (make-exit-status nil)
 
       (exit-command? m)
-      (make-exit-status)
+      (make-exit-status nil)
 
       ;; callcc
 
@@ -403,16 +416,15 @@
       (print-command? m)
       (do
         (apply println (print-command-line m))
-        (make-exit-status))
+        (make-exit-status nil))
       )))
 
 
 ;; --- Outside runner ---------
 
-(declare run-many-to-many)
 (declare run-many-to-many-after)
 
-(defn run-mn [m task runner]
+(defn- run-mn [m task runner]
   (runner
     (fn []
       (let [res (run-cont m task)]
@@ -463,8 +475,10 @@
           ;; QUITTING
 
           (exit-status? res)
-          :quit
-          )))))
+          (reset! (task-return-value-ref task)
+                  (exit-status-value res))
+          ))))
+  (task-return-value-ref task))
 
 (defn run-many-to-many
   ([m]
