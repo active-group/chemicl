@@ -70,7 +70,8 @@
        (if succ
          ;; unpark
          (m/monadic
-          (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)
+          (conc/fork
+           (conc/throw (offer-waiter o) (maybe/nothing)))
           (m/return (backoff/done (maybe/nothing))))
          ;; else retry
          (m/return (backoff/retry-backoff))))
@@ -85,25 +86,29 @@
 
 (defmonadic wait [oref]
   [o (kcas/read oref)]
-  [me (conc/get-current-task)]
-  [succ
-   (cond
-     (empty? o)
-     (kcas/cas oref o [:waiting me])
+  #_[me (conc/get-current-task)]
+  (conc/call-cc
+   (fn [cont]
+     (m/monadic
+      [succ
+       (cond
+         (empty? o)
+         (kcas/cas oref o [:waiting cont])
 
-     (completed? o)
-     (m/return false)
+         (completed? o)
+         (m/return false)
 
-     (rescinded? o)
-     (m/return false)
+         (rescinded? o)
+         (m/return false)
 
-     (waiting? o)
-     (assert false "Cannot wait twice on a ref"))]
+         (waiting? o)
+         (assert false "Cannot wait twice on a ref"))]
 
-  (if succ
-    (conc/park)
-    ;; else continue
-    (m/return (maybe/nothing))))
+      (if succ
+        ;; park
+        (conc/exit)
+        ;; continue execution
+        (conc/throw cont (maybe/nothing)))))))
 
 (defmonadic complete [oref v] ;; v final result, returns a reaction
   [o (kcas/read oref)]
@@ -113,7 +118,10 @@
      (-> (rx-data/empty-rx)
          (rx-data/add-cas [oref o [:completed v]])
          (rx-data/add-action
-          (conc/unpark (offer-waiter o) nil)))
+          (conc/fork
+           (conc/throw
+            (offer-waiter o)
+            (maybe/just v)))))
 
      (empty? o) ;; this should not happen (?)
      (-> (rx-data/empty-rx)
