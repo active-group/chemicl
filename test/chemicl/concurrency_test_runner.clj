@@ -96,7 +96,7 @@
 (defn- new-thread-id [log]
   (hash log))
 
-(defn- enact [tid m log threads]
+(defn- enact [tid m log m-log threads]
   (loop [m m]
     (cond
       (m/free-bind? m)
@@ -129,7 +129,15 @@
                 actual (is-equal-command-actual m1)
                 msg (is-equal-command-message m1)]
             (test/do-report {:type (if (= expected actual) :pass :fail)
-                             :message msg
+                             :message (str msg
+                                           "\nSchedule:\n"
+                                           (clojure.string/join
+                                            "\n" (map str
+                                                      log
+                                                      (repeat "\t")
+                                                      (map (comp :line meta) m-log)
+                                                      (repeat "\t")
+                                                      (map pr-str m-log))))
                              :expected expected
                              :actual actual})
             (recur (c nil))
@@ -250,7 +258,15 @@
             actual (is-equal-command-actual m)
             msg (is-equal-command-message m)]
         (test/do-report {:type (if (= expected actual) :pass :fail)
-                         :message msg
+                         :message (str msg
+                                       "\nSchedule:\n"
+                                       (clojure.string/join
+                                        "\n" (map str
+                                                  log
+                                                  (repeat "\t")
+                                                  (map (comp :line meta) m-log)
+                                                  (repeat "\t")
+                                                  (map pr-str m-log))))
                          :expected expected
                          :actual actual})
         [:done
@@ -447,6 +463,8 @@
     (test/is (= [2 22] (map first sts5)))
     ))
 
+(def INITIAL-TID :initial)
+
 
 ;; --- Breadth-first search test runner ---------
 
@@ -488,7 +506,7 @@
 (defn- run-with-trace-prefix
   "Consumes prefix, may produce a set of new prefixes"
   [prefix m]
-  (loop [threads {:init (make-thread-state m)}
+  (loop [threads {INITIAL-TID (make-thread-state m)}
          pre prefix
          log []
          m-log []]
@@ -497,7 +515,7 @@
       (let [ts (get threads next-tid)
 
             [code new-threads return-val]
-            (enact next-tid (thread-state-m ts) log threads)]
+            (enact next-tid (thread-state-m ts) log m-log threads)]
 
         (case code
           :continue
@@ -508,7 +526,7 @@
            (conj m-log (thread-state-m ts)))
 
           :done
-          (if (= next-tid :init)
+          (if (= next-tid INITIAL-TID)
             ;; initial thread is done
             ;; we can omit the others and return
             [:done return-val]
@@ -552,7 +570,7 @@
   (rand-nth (schedulable-threads threads)))
 
 (defn run-randomized [m]
-  (loop [threads {:init (make-thread-state m)}
+  (loop [threads {INITIAL-TID (make-thread-state m)}
          log []]
 
     (when (deadlocked? threads)
@@ -567,13 +585,13 @@
     (if-let [[tid ts] (random-thread threads)]
       ;; run
       (let [[code new-threads return-val]
-            (enact tid (thread-state-m ts) log threads)]
+            (enact tid (thread-state-m ts) log nil threads)]
         (case code
           :continue ;; this thread is not yet finished
           (recur new-threads (conj log tid))
 
           :done ;; this thread is finished
-          (if (= tid :init)
+          (if (= tid INITIAL-TID)
             ;; initial thread is done
             ;; we can omit the others and return
             log
