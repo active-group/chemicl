@@ -1,5 +1,7 @@
 <img src="https://raw.githubusercontent.com/active-group/chemicl/master/logo.png" width="180">
 
+> « Sortie de secours – casser la vitre en cas de danger »
+
 A Clojure library for composable concurrency based on Reagents.
 
 ## Usage
