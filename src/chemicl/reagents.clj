@@ -151,6 +151,12 @@
   (fn [k]
     (make-my-reagent tr k)))
 
+(defmacro defreagent [name args1 args2 body]
+  `(defn ~name [~@args1]
+     (my (fn [~@args2]
+           (m/monadic
+            ~body)))))
+
 (defn my-return [& [res rx ctx]]
   (m/return
    {:type :continue
