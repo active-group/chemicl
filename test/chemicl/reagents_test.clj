@@ -409,37 +409,38 @@
                                      [:starter-was-here :starter-res])))]
 
     ;; Run
-    (test-runner/run
-      (m/monadic
-       [parent (conc/get-current-task)]
-       [blocker-res (conc/new-ref :nothing)]
-       [r (refs/new-ref :nobody-was-here)]
+    (test-runner/run-randomized-n
+     1000
+     (m/monadic
+      [parent (conc/get-current-task)]
+      [blocker-res (conc/new-ref :nothing)]
+      [r (refs/new-ref :nobody-was-here)]
 
-       ;; run blocking-upd
-       (conc/fork
-        (m/monadic
-         (test-runner/mark)
-         [res (rea/react! (blocking-upd r) nil)]
-         (test-runner/unmark)
+      ;; run blocking-upd
+      (conc/fork
+       (m/monadic
+        (test-runner/mark)
+        [res (rea/react! (blocking-upd r) nil)]
+        (test-runner/unmark)
 
-         (conc/reset blocker-res res)
-         (conc/unpark parent nil)
-         ))
+        (conc/reset blocker-res res)
+        (conc/unpark parent nil)
+        ))
 
-       ;; run other-upd
-       (test-runner/mark)
-       (rea/react! (other-upd r) nil)
-       (test-runner/unmark)
+      ;; run other-upd
+      (test-runner/mark)
+      (rea/react! (other-upd r) nil)
+      (test-runner/unmark)
 
-       ;; sleep
-       (conc/park)
+      ;; sleep
+      (conc/park)
 
-       ;; check results
-       [blr (conc/read blocker-res)]
-       [rr (refs/read r)]
-       (test-runner/is= blr :blocker-res)
-       (test-runner/is= rr :blocker-was-here)
-       ))))
+      ;; check results
+      [blr (conc/read blocker-res)]
+      [rr (refs/read r)]
+      (test-runner/is= blr :blocker-res)
+      (test-runner/is= rr :blocker-was-here)
+      ))))
 
 
 ;; ----------------------

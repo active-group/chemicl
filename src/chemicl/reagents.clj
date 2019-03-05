@@ -87,13 +87,8 @@
 ;; -----------------------------------------------
 ;; API
 
-(defn >>> [l r]
-  (fn [k]
-    (l (r k))))
-
 (defn upd [r f]
-  (fn [k]
-    (make-upd r f k)))
+  (make-upd r f (make-commit)))
 
 (defn cas [r ov nv]
   (upd r (fn [[current _]]
@@ -102,35 +97,31 @@
              nil))))
 
 (defn read [r]
-  (fn [k]
-    (make-read r k)))
+  (make-read r (make-commit)))
 
 (defn swap [ep]
-  (fn [k]
-    (make-swap ep k)))
+  (make-swap ep (make-commit)))
 
 (defn choose [l r]
-  (fn [k]
-    (make-choose (l k) (r k))))
+  (make-choose l r))
 
 (defn post-commit [f]
-  (fn [k]
-    (make-post-commit f k)))
+  (make-post-commit f (make-commit)))
 
 ;; return : a -> Reagent () a
 (defn return [v]
-  (fn [k]
-    (make-return v k)))
+  (make-return v (make-commit)))
 
 ;; computed : (a -> R () b) -> R a b
 (defn computed [f]
-  (fn [k]
-    (make-computed f k)))
+  (make-computed f (make-commit)))
 
 ;; lift : (a -> b) -> Reagent a b
 (defn lift [f]
-  (fn [k]
-    (make-lift f k)))
+  (make-lift f (make-commit)))
+
+(def id
+  (lift identity))
 
 ;; --- User-defined Reagents ---------
 
@@ -148,8 +139,7 @@
   values: :block, :retry or a map containing (some of) the
   keys :context, :result, :reaction."
   [tr]
-  (fn [k]
-    (make-my-reagent tr k)))
+  (make-my-reagent tr (make-commit)))
 
 (defmacro defreagent [name args1 args2 body]
   `(defn ~name [~@args1]
@@ -175,21 +165,22 @@
     :context ctx}))
 
 
-;; -----------------------------------------------
-;; Helpers
+;; ------------------------------
+;; --- Sequential composition ---
+;; ------------------------------
 
-(defn- compose [rea r]
+(defn- >> [rea r]
   (cond
     (upd? rea)
     (make-upd
      (upd-ref rea)
      (upd-fn rea)
-     (compose (upd-k rea) r))
+     (>> (upd-k rea) r))
 
     (swap? rea)
     (make-swap
      (swap-endpoint rea)
-     (compose (swap-k rea) r))
+     (>> (swap-k rea) r))
 
     (commit? rea)
     r
@@ -197,50 +188,52 @@
     (post-commit? rea)
     (make-post-commit
      (post-commit-f rea)
-     (compose (post-commit-k rea) r))
+     (>> (post-commit-k rea) r))
 
     (read? rea)
     (make-read
      (read-ref rea)
-     (compose (read-k rea) r))
+     (>> (read-k rea) r))
 
     (choose? rea)
     (make-choose
-     (compose (choose-l rea) r)
-     (compose (choose-r rea) r))
+     (>> (choose-l rea) r)
+     (>> (choose-r rea) r))
 
     (complete-offer? rea)
     (make-complete-offer
      (complete-offer-offer rea)
-     (compose (complete-offer-k rea) r))
+     (>> (complete-offer-k rea) r))
 
     (return? rea)
     (make-return
      (return-value rea)
-     (compose (return-k rea) r))
+     (>> (return-k rea) r))
 
     (computed? rea)
     (make-computed
      (computed-function rea)
-     (compose (computed-k rea) r))
+     (>> (computed-k rea) r))
 
     (lift? rea)
     (make-lift
      (lift-function rea)
-     (compose (lift-k rea) r))
+     (>> (lift-k rea) r))
 
     (my-reagent? rea)
     (make-my-reagent
      (my-reagent-try-react rea)
-     (compose (my-reagent-k rea) r))
+     (>> (my-reagent-k rea) r))
 
     ))
 
-(defn compose-n [rea & reas]
-  (reduce compose rea reas))
+(defn >>> [& reas]
+  (reduce >> id reas))
 
 
-;; -----------------------------------------------
+;; -------------
+;; --- React ---
+;; -------------
 
 (declare try-react)
 
@@ -275,10 +268,10 @@
            sender-oref (message-sender-offer msg)])
      
      (let [new-rx (rx-data/rx-union rx sender-rx)
-           new-rea (compose-n sender-k
-                              (make-complete-offer sender-oref (make-commit))
-                              (make-return sender-a (make-commit))
-                              k)])
+           new-rea (>>> sender-k
+                        (make-complete-offer sender-oref (make-commit))
+                        (make-return sender-a (make-commit))
+                        k)])
 
      ;; run combined reagent
      [res (try-react new-rea a new-rx oref ctx)]
@@ -388,7 +381,7 @@
   [resres (cm/maybe-unwrap-monadic res)]
 
   ;; resres is a function k -> reagent
-  (try-react (resres k) nil rx oref ctx))
+  (try-react (>> resres k) nil rx oref ctx))
 
 (defmonadic try-react-lift [rea a rx oref ctx]
   (let [f (lift-function rea)
@@ -530,7 +523,5 @@
     :else
     (m/return res)))
 
-(defmonadic react! [reagent-fn a]
-  ;; add commit continuation
-  (let [reagent (reagent-fn (make-commit))])
+(defmonadic react! [reagent a]
   (with-offer reagent a 0 (atom nil)))
