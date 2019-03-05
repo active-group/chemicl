@@ -806,3 +806,56 @@
      [res (rea/react! (rea/lift inc) 23)]
      (test-runner/is= 24 res)
      )))
+
+
+;; ----------------------
+;; --- First ------------
+;; ----------------------
+
+(deftest first-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/first
+            (rea/lift inc)) [42 42])]
+     (test-runner/is= [43 42] res))))
+
+
+;; ----------------------
+;; --- Nth --------------
+;; ----------------------
+
+(deftest nth-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/nth
+            (rea/lift inc) 2) [0 0 0 0])]
+     (test-runner/is= [0 0 1 0] res))))
+
+
+;; ----------------------
+;; --- *** --------------
+;; ----------------------
+
+(deftest ***-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/*** (rea/lift inc)
+                    (rea/lift inc)
+                    (rea/lift inc)) [0 0 0])]
+     (test-runner/is= [1 1 1] res))))
+
+
+;; ----------------------
+;; --- &&& --------------
+;; ----------------------
+
+(deftest &&&-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/&&& (rea/lift inc)
+                    (rea/lift dec)) 42)]
+     (test-runner/is= [43 41] res))))

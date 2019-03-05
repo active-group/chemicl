@@ -72,6 +72,13 @@
   [f lift-function
    k lift-k])
 
+(acr/define-record-type Nth
+  (make-nth a n k)
+  nth?
+  [a nth-arrow
+   n nth-n
+   k nth-k])
+
 (acr/define-record-type CompleteOffer
   (make-complete-offer o k)
   complete-offer?
@@ -119,6 +126,30 @@
 ;; lift : (a -> b) -> Reagent a b
 (defn lift [f]
   (make-lift f (make-commit)))
+
+(defn nth [a n]
+  (make-nth a n (make-commit)))
+
+(defn first [a]
+  (nth a 0))
+
+(declare >>>)
+(declare >>)
+
+;; *** : a b c -> a b' c' -> a (b,b') (c,c')
+(defn ***
+  "split"
+  [& arrs]
+  (apply >>>
+         (map nth arrs (range))))
+
+;; &&& : a b c -> a b c' -> a b (c,c')
+(defn &&&
+  "fanout"
+  [& arrs]
+  (>>
+   (lift (fn [b] (repeat (count arrs) b)))
+   (apply *** arrs)))
 
 (def id
   (lift identity))
@@ -220,6 +251,12 @@
      (lift-function rea)
      (>> (lift-k rea) r))
 
+    (nth? rea)
+    (make-nth
+     (nth-arrow rea)
+     (nth-n rea)
+     (>> (nth-k rea) r))
+
     (my-reagent? rea)
     (make-my-reagent
      (my-reagent-try-react rea)
@@ -228,7 +265,7 @@
     ))
 
 (defn >>> [& reas]
-  (reduce >> id reas))
+  (reduce >> reas))
 
 
 ;; -------------
@@ -388,6 +425,18 @@
         k (lift-k rea)])
   (try-react k (f a) rx oref ctx))
 
+(defmonadic try-react-nth [rea a rx oref ctx]
+  (let [arr (nth-arrow rea)
+        n (nth-n rea)
+        k (nth-k rea)])
+  (try-react
+   (>>> arr
+        (lift
+         (fn [c]
+           (assoc (vec a) n c)))
+        k)
+   (clojure.core/nth a n) rx oref ctx))
+
 (defmonadic commit-reaction [rx a]
   [succ (rx/try-commit rx)]
   (if succ
@@ -463,6 +512,9 @@
 
     (lift? rea)
     (try-react-lift rea a rx oref ctx)
+
+    (nth? rea)
+    (try-react-nth rea a rx oref ctx)
 
     (my-reagent? rea)
     (try-react-my-reagent rea a rx oref ctx)
