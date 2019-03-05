@@ -88,3 +88,24 @@
 
 (defn read-file [f]
   (read-channel (open-file-channel f java.nio.file.StandardOpenOption/READ)))
+
+
+(defn readch [ch]
+  (let [buf (new-byte-buffer 1024)
+        [ep-1 ep-2] (conc/run-here (chemicl.channels/new-channel))]
+    ;; kick off reader
+    (.read ch buf 0 nil
+           (reify java.nio.channels.CompletionHandler
+             (completed [_ result _]
+               (.flip buf)
+               (conc/run
+                 (rea/react! (rea/swap ep-1) buf)))
+
+             (failed [this ex attachment]
+               (println "failed"))))
+
+    (rea/swap ep-2)
+    ))
+
+(defn readf [f]
+  (readch (open-file-channel f java.nio.file.StandardOpenOption/READ)))

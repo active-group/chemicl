@@ -75,3 +75,31 @@
     ;; assert something
     (is (= :too-late @res))
     ))
+
+(defmacro fn->> [& forms]
+  `(fn [arg#]
+     (->> arg# ~@forms)))
+
+(deftest readf-t
+  (let [url "file:///Users/markusschlegel/foo.txt"
+        res (atom :nothing)]
+
+    ;; run reagent
+    (conc/run
+      [result
+       (rea/react!
+        (rea/>>>
+         (io/readf url)
+         (rea/lift
+          (fn->>
+           (.decode (java.nio.charset.Charset/forName "UTF-8"))
+           (.toString)))) nil)]
+
+      (let [_ (reset! res result)])
+      (conc/exit))
+
+    (Thread/sleep 100)
+
+    ;; assert something
+    (is (= "hi wie geht\n" @res))
+    ))

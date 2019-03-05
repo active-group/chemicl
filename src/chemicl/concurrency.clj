@@ -489,3 +489,17 @@
 
 (defn run-many-to-many-after [m task delay]
   (run-mn m task (partial x/run-after delay)))
+
+(defn run-here [m]
+  (loop [m m]
+    (let [res (run-cont m :here)]
+      (cond
+        (timeout-status? res)
+        (let [cont (timeout-status-continuation res)
+              msec (timeout-status-timeout res)]
+          (Thread/sleep msec)
+          (recur (cont nil)))
+
+        (exit-status? res)
+        (exit-status-value res)
+        ))))
