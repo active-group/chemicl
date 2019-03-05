@@ -1,10 +1,11 @@
 (ns chemicl.reaction-data)
 
 (defn rx-union [& rxs]
-  {:tag ::reaction
-   :cases (apply concat (map :cases rxs))
-   :actions (apply concat (map :actions rxs))
-   :live? (every? :live? rxs)})
+  (let [grxs (filter some? rxs)]
+    {:tag ::reaction
+     :cases (apply concat (map :cases grxs))
+     :actions (apply concat (map :actions grxs))
+     :live? (every? :live? grxs)}))
 
 (defn rx-cases [rx]
   (sort-by (fn [[r _ _]]

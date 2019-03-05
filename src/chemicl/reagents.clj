@@ -78,6 +78,12 @@
   [o complete-offer-offer
    k complete-offer-k])
 
+(acr/define-record-type MyReagent
+  (make-my-reagent try-react k)
+  my-reagent?
+  [try-react my-reagent-try-react
+   k my-reagent-k])
+
 ;; -----------------------------------------------
 ;; API
 
@@ -125,6 +131,43 @@
 (defn lift [f]
   (fn [k]
     (make-lift f k)))
+
+;; --- User-defined Reagents ---------
+
+(defn my
+  "Create a custom reagent. You must provide a function that takes three
+  arguments: an input value, a context value, and a rerun thunk. The
+  input value is the standard reagent input. The context is a place
+  where you can store values that persists over mutliple invocations
+  of your reagent function. The rerun thunk can be used to trigger a
+  rerun of the reaction this reagent is involved in. The reaction
+  should be in a blocked state when rerun is called (Therefore it only
+  makes sense to run `rerun` on a different thread).
+
+  The function you provide may return one of three types of
+  values: :block, :retry or a map containing (some of) the
+  keys :context, :result, :reaction."
+  [tr]
+  (fn [k]
+    (make-my-reagent tr k)))
+
+(defn my-return [& [res rx ctx]]
+  (m/return
+   {:type :continue
+    :result res
+    :reaction rx
+    :context ctx}))
+
+(defn my-block [& [ctx]]
+  (m/return
+   {:type :block
+    :context ctx}))
+
+(defn my-retry [& [ctx]]
+  (m/return
+   {:type :retry
+    :context ctx}))
+
 
 ;; -----------------------------------------------
 ;; Helpers
@@ -180,6 +223,11 @@
      (lift-function rea)
      (compose (lift-k rea) r))
 
+    (my-reagent? rea)
+    (make-my-reagent
+     (my-reagent-try-react rea)
+     (compose (my-reagent-k rea) r))
+
     ))
 
 (defn compose-n [rea & reas]
@@ -206,7 +254,7 @@
   (m/return
    (offers/active? o)))
 
-(defmonadic try-react-swap-from [k a rx oref cursor retry?]
+(defmonadic try-react-swap-from [k a rx oref cursor retry? ctx]
   (let [msg (and cursor (mq/cursor-value cursor))])
   (if-not msg
     (m/return
@@ -227,25 +275,25 @@
                               k)])
 
      ;; run combined reagent
-     [res (try-react new-rea a new-rx oref)]
+     [res (try-react new-rea a new-rx oref ctx)]
 
      ;; handle result
      (cond
        (= :block res)
        (m/monadic
         [next-cursor (mq/cursor-next cursor)]
-        (try-react-swap-from k a rx oref next-cursor retry?))
+        (try-react-swap-from k a rx oref next-cursor retry? ctx))
 
        (= :retry res)
        (m/monadic
         [next-cursor (mq/cursor-next cursor)]
-        (try-react-swap-from k a rx oref next-cursor true))
+        (try-react-swap-from k a rx oref next-cursor true ctx))
 
        :else
        (m/return res))
      )))
 
-(defmonadic try-react-swap [rea a rx oref]
+(defmonadic try-react-swap [rea a rx oref ctx]
   (let [ep (swap-endpoint rea)
         k (swap-k rea)
         ;; our read end:
@@ -263,19 +311,19 @@
   ;; finally: search for matching messages
   [cursor (mq/cursor in)]
   (if cursor
-    (try-react-swap-from k a rx oref cursor false)
+    (try-react-swap-from k a rx oref cursor false ctx)
     ;; else block
     (m/return :block)))
 
 ;; --- Shared memory
 
-(defmonadic try-react-read [rea a rx oref]
+(defmonadic try-react-read [rea a rx oref ctx]
   (let [r (read-ref rea)
         k (read-k rea)])
   [v (refs/read r)]
-  (try-react k v rx oref))
+  (try-react k v rx oref ctx))
 
-(defmonadic try-react-upd [rea a rx oref]
+(defmonadic try-react-upd [rea a rx oref ctx]
   (let [r (upd-ref rea)
         f (upd-fn rea)
         k (upd-k rea)])
@@ -298,34 +346,34 @@
                            (rx-data/add-cas
                             [(refs/ref-data-ref r) ov nv])
                            (rx-data/add-action
-                            (refs/rescind-offers r))) oref))
+                            (refs/rescind-offers r))) oref ctx))
     ;; else block
     (m/return :block)))
 
-(defmonadic try-react-post-commit [rea a rx oref]
+(defmonadic try-react-post-commit [rea a rx oref ctx]
   (let [f (post-commit-f rea)
         k (post-commit-k rea)])
-  (try-react k a (rx-data/add-action rx (f a)) oref))
+  (try-react k a (rx-data/add-action rx (f a)) oref ctx))
 
-(defmonadic try-react-choose [rea a rx oref]
+(defmonadic try-react-choose [rea a rx oref ctx]
   (let [l (choose-l rea)
         r (choose-r rea)])
   ;; try left
-  [lres (try-react l a rx oref)]
+  [lres (try-react l a rx oref ctx)]
   (if (= :block lres)
     ;; try right
-    (try-react r a rx oref)
+    (try-react r a rx oref ctx)
     ;; else return res
     (m/return lres)))
 
 ;; --- Misc
 
-(defmonadic try-react-return [rea a rx oref]
+(defmonadic try-react-return [rea a rx oref ctx]
   (let [v (return-value rea)
         k (return-k rea)])
-  (try-react k v rx oref))
+  (try-react k v rx oref ctx))
 
-(defmonadic try-react-computed [rea a rx oref]
+(defmonadic try-react-computed [rea a rx oref ctx]
   (let [f (computed-function rea)
         k (computed-k rea)])
   (let [res (f a)])
@@ -334,12 +382,12 @@
   [resres (cm/maybe-unwrap-monadic res)]
 
   ;; resres is a function k -> reagent
-  (try-react (resres k) nil rx oref))
+  (try-react (resres k) nil rx oref ctx))
 
-(defmonadic try-react-lift [rea a rx oref]
+(defmonadic try-react-lift [rea a rx oref ctx]
   (let [f (lift-function rea)
         k (lift-k rea)])
-  (try-react k (f a) rx oref))
+  (try-react k (f a) rx oref ctx))
 
 (defmonadic commit-reaction [rx a]
   [succ (rx/try-commit rx)]
@@ -347,7 +395,7 @@
     (m/return a)
     (m/return :retry)))
 
-(defmonadic try-react-commit [rea a rx oref]
+(defmonadic try-react-commit [rea a rx oref ctx]
   (if oref
     (m/monadic
      [ores (offers/rescind oref)]
@@ -360,50 +408,78 @@
     ;; else
     (commit-reaction rx a)))
 
-(defmonadic try-react-complete-offer [rea a rx my-oref]
+(defmonadic try-react-complete-offer [rea a rx my-oref ctx]
   (let [other-oref (complete-offer-offer rea)
         k (complete-offer-k rea)])
   [offer-rx (offers/complete other-oref a)]
-  (try-react k a (rx-data/rx-union rx offer-rx) my-oref))
+  (try-react k a (rx-data/rx-union rx offer-rx) my-oref ctx))
 
-(defn try-react [rea a rx oref]
+(defmonadic try-react-my-reagent [rea a rx oref ctx]
+  (let [tr (my-reagent-try-react rea)
+        k (my-reagent-k rea)
+        narrow-ctx (get @ctx rea)])
+
+  ;; run user-defined try-react
+  [{:keys [type result context reaction]}
+   (tr a narrow-ctx (offers/rescind oref))]
+
+  ;; set new context
+  (let [_ (when context
+            (swap! ctx assoc rea context))])
+
+  (case type
+    :block
+    (m/return :block)
+
+    :retry
+    (m/return :retry)
+
+    :continue
+    (try-react k result
+               (rx-data/rx-union rx reaction)
+               oref ctx)))
+
+(defn try-react [rea a rx oref ctx]
   (cond
     (read? rea)
-    (try-react-read rea a rx oref)
+    (try-react-read rea a rx oref ctx)
 
     (upd? rea)
-    (try-react-upd rea a rx oref)
+    (try-react-upd rea a rx oref ctx)
 
     (swap? rea)
-    (try-react-swap rea a rx oref)
+    (try-react-swap rea a rx oref ctx)
 
     (post-commit? rea)
-    (try-react-post-commit rea a rx oref)
+    (try-react-post-commit rea a rx oref ctx)
 
     (choose? rea)
-    (try-react-choose rea a rx oref)
+    (try-react-choose rea a rx oref ctx)
 
     (return? rea)
-    (try-react-return rea a rx oref)
+    (try-react-return rea a rx oref ctx)
 
     (computed? rea)
-    (try-react-computed rea a rx oref)
+    (try-react-computed rea a rx oref ctx)
 
     (lift? rea)
-    (try-react-lift rea a rx oref)
+    (try-react-lift rea a rx oref ctx)
+
+    (my-reagent? rea)
+    (try-react-my-reagent rea a rx oref ctx)
 
     ;; final case
     (commit? rea)
-    (try-react-commit rea a rx oref)
+    (try-react-commit rea a rx oref ctx)
 
     ;; special case
     (complete-offer? rea)
-    (try-react-complete-offer rea a rx oref)
+    (try-react-complete-offer rea a rx oref ctx)
     ))
 
 (declare with-offer)
 
-(defmonadic with-offer-continue [reagent a oref backoff-counter]
+(defmonadic with-offer-continue [reagent a oref backoff-counter ctx]
   [ores (offers/rescind oref)]
   (maybe-case ores
     ;; got an answer to return
@@ -412,28 +488,28 @@
 
     ;; else retry
     (nothing)
-    (with-offer reagent a backoff-counter)))
+    (with-offer reagent a backoff-counter ctx)))
 
-(defmonadic with-offer [reagent a backoff-counter]
+(defmonadic with-offer [reagent a backoff-counter ctx]
   [oref (offers/new-offer)]
-  [res (try-react reagent a (rx-data/empty-rx) oref)]
+  [res (try-react reagent a (rx-data/empty-rx) oref ctx)]
   (cond
     (= :block res)
     (m/monadic
      (offers/wait oref)
      ;; when continued:
-     (with-offer-continue reagent a oref backoff-counter))
+     (with-offer-continue reagent a oref backoff-counter ctx))
 
     (= :retry res)
     ;; backoff.once
     (m/monadic
      (backoff/timeout-with-counter backoff-counter)
-     (with-offer-continue reagent a oref (inc backoff-counter)))
+     (with-offer-continue reagent a oref (inc backoff-counter) ctx))
 
     :else
     (m/return res)))
 
-(defmonadic without-offer [reagent a backoff-counter]
+#_(defmonadic without-offer [reagent a backoff-counter]
   [res (try-react reagent a (rx-data/empty-rx) nil)]
   (cond
     (= :block res)
@@ -451,4 +527,4 @@
 (defmonadic react! [reagent-fn a]
   ;; add commit continuation
   (let [reagent (reagent-fn (make-commit))])
-  (without-offer reagent a 0))
+  (with-offer reagent a 0 (atom nil)))
