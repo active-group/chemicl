@@ -807,6 +807,17 @@
      (test-runner/is= 24 res)
      )))
 
+(deftest lift-monadic-tt
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/lift
+            (fn [a]
+              (m/return (inc a))))
+           23)]
+     (test-runner/is= 24 res)
+     )))
+
 
 ;; ----------------------
 ;; --- First ------------

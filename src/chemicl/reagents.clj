@@ -431,7 +431,11 @@
 (defmonadic try-react-lift [rea a rx oref ctx]
   (let [f (lift-function rea)
         k (lift-k rea)])
-  (try-react k (f a) rx oref ctx))
+
+  ;; f might be a monadic program
+  [res (cm/maybe-unwrap-monadic (f a))]
+
+  (try-react k res rx oref ctx))
 
 (defmonadic try-react-nth [rea a rx oref ctx]
   (let [arr (nth-arrow rea)
