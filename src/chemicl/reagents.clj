@@ -11,6 +11,7 @@
    [chemicl.reactions :as rx]
    [chemicl.reaction-data :as rx-data]
    [chemicl.backoff :as backoff]
+   [chemicl.concurrency :as conc]
    [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.maybe :as maybe :refer [maybe-case just nothing]]))
 
@@ -202,6 +203,17 @@
   (m/return
    {:type :retry
     :context ctx}))
+
+(declare react!)
+(defn ->reagent
+  "Turn a monadic action into a reagent"
+  [action]
+  (let [ch (conc/run-here (ch/new-channel))]
+    (conc/run
+      [res action]
+      (react! (send ch) res))
+
+    (receive ch)))
 
 
 ;; ------------------------------
