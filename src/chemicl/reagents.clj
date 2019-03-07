@@ -109,6 +109,14 @@
 (defn swap [ep]
   (make-swap ep (make-commit)))
 
+;; if swap is too confusing, try send and receive
+
+(defn send [[i o]]
+  (swap i))
+
+(defn receive [[i o]]
+  (swap o))
+
 (defn choose [l r]
   (make-choose l r))
 
