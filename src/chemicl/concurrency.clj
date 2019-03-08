@@ -2,7 +2,6 @@
   (:require
    [chemicl.exec :as x]
    [active.clojure.record :as acr]
-   [active.clojure.lens :as lens]
    [active.clojure.monad :as m]
    [chemicl.monad :refer [defmonadic whenm]]))
 
@@ -155,11 +154,11 @@
 (acr/define-record-type Task
   (make-task tl ret)
   task?
-  [(tl task-lock task-lock-lens)
-   (ret task-return-value-ref task-return-value-ref-lens)])
+  [tl task-lock
+   ret task-return-value-promise])
 
 (defn new-task! []
-  (make-task (new-task-lock!) (atom nil)))
+  (make-task (new-task-lock!) (promise)))
 
 (defn signal-task! [t v]
   (signal-on-task-lock!
@@ -475,10 +474,11 @@
           ;; QUITTING
 
           (exit-status? res)
-          (reset! (task-return-value-ref task)
-                  (exit-status-value res))
+          (deliver (task-return-value-promise task)
+                   (exit-status-value res))
           ))))
-  (task-return-value-ref task))
+
+  (task-return-value-promise task))
 
 (defn run-many-to-many
   ([m]
