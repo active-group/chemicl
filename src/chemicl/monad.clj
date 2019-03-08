@@ -2,6 +2,13 @@
   (:require
    [active.clojure.monad :as m]))
 
+(defmacro effect! [f]
+  `(m/monadic
+    ;; shield the thunk from eager evaluation
+    (m/return nil)
+    (let [r# ~f]
+      (m/return r#))))
+
 (defn monadic? [x]
   (or (m/free-return? x)
       (m/free-bind? x)))
@@ -28,6 +35,14 @@
      (m/monadic
       ~@body)
      (m/return nil)))
+
+(defmacro fm
+  "like fn but monadic"
+  {:style/indent :defn}
+  [args & bodies]
+  `(fn ~args
+     (m/monadic
+      ~@bodies)))
 
 (defn mask [coll m]
   (let [mask-map (zipmap coll m)]

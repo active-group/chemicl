@@ -1,7 +1,7 @@
 (ns chemicl.reagents-test
   (:require [chemicl.reagents :as rea]
             [active.clojure.monad :as m]
-            [chemicl.monad :as cm :refer [defmonadic whenm]]
+            [chemicl.monad :as cm :refer [defmonadic whenm fm effect!]]
             [chemicl.refs :as refs]
             [chemicl.concurrency :as conc]
             [chemicl.channels :as channels]
@@ -15,110 +15,64 @@
 ;; ----------------------
 
 (deftest swap-t
-  (let [res-1 (atom nil)
-        res-2 (atom nil)
+  (let [[ep-1 ep-2] @(conc/run (channels/new-channel))
 
-        ep-1-atom (atom nil)
-        ep-2-atom (atom nil)
+        ;; Run swap-1
+        p1 (conc/run
+             (rea/react!
+              (rea/swap ep-1)
+              :from-1))
 
-        swapper (fn [ep v res-atom]
-                  (m/monadic
-                   [res (rea/react! (rea/swap ep) v)]
-                   (let [_ (reset! res-atom res)])
-                   (conc/print "done" (pr-str res))))
-        ]
+        ;; Let swap-1 dangle for a while
+        _ (Thread/sleep 100)
 
-    ;; Run initializer
-    (conc/run
-      [[ep-1 ep-2] (channels/new-channel)]
-      (let [_ (reset! ep-1-atom ep-1)])
-      (let [_ (reset! ep-2-atom ep-2)])
-      (m/return nil))
-
-    (Thread/sleep 20)
-
-    ;; Run swap-1
-    (conc/run
-      (swapper @ep-1-atom :from-1 res-1))
-
-    ;; Let swap-1 dangle for a while
-    (Thread/sleep 100)
-
-    ;; Run swap-2
-    (conc/run
-      (swapper @ep-2-atom :from-2 res-2))
-
-    ;; Wait
-    (Thread/sleep 20)
+        ;; Run swap-2
+        p2 (conc/run
+              (rea/react!
+               (rea/swap ep-2)
+               :from-2))]
 
     ;; Check results
-    (is (= @res-1 :from-2))
-    (is (= @res-2 :from-1))
+    (is (= :from-2 @p1))
+    (is (= :from-1 @p2))
     ))
 
 
 (deftest swap-with-upd-continuation-t
-  (let [res-res-1 (atom nil)
-        res-res-2 (atom nil)
-        mem-res-1 (atom nil)
-        mem-res-2 (atom nil)
+  (let [[ep-1 ep-2] @(conc/run (channels/new-channel))
+        ref-1 @(conc/run (refs/new-ref :nothing))
+        ref-2 @(conc/run (refs/new-ref :nothing))
 
-        ep-1-atom (atom nil)
-        ep-2-atom (atom nil)
+        swapper (fm [ep v r]
+                  [res (rea/react! (rea/>>>
+                                    (rea/swap ep)
+                                    (rea/upd r (fn [[ov a]]
+                                                 ;; store input at ref 
+                                                 [(+ a 100)
+                                                  (+ a 1000)]))) v)]
+                  [mem (refs/read r)]
+                  (m/return [res mem]))
 
-        ref-1-atom (atom nil)
-        ref-2-atom (atom nil)
+        ;; Run swap-1
+        p1 (conc/run (swapper ep-1 1 ref-1))
 
-        swapper (fn [ep v res-res-atom mem-res-atom r]
-                  (m/monadic
-                   [res (rea/react! (rea/>>>
-                                     (rea/swap ep)
-                                     (rea/upd r (fn [[ov a]]
-                                                  ;; store input at ref 
-                                                  [(+ a 100)
-                                                   (+ a 1000)]))) v)]
-                   (let [_ (reset! res-res-atom res)])
-                   [mem (refs/read r)]
-                   (let [_ (reset! mem-res-atom mem)])
-                   (conc/print "done" (pr-str res))))
+        ;; Let swap-1 dangle for a while
+        _ (Thread/sleep 100)
+
+        ;; Run swap-2
+        p2 (conc/run (swapper ep-2 2 ref-2))
+
+        [res-1 mem-1] @p1
+        [res-2 mem-2] @p2
         ]
 
-    ;; Run initializer
-    (conc/run
-      [[ep-1 ep-2] (channels/new-channel)]
-      (let [_ (reset! ep-1-atom ep-1)])
-      (let [_ (reset! ep-2-atom ep-2)])
-
-      [ref-1 (refs/new-ref :nothing)]
-      [ref-2 (refs/new-ref :nothing)]
-      (let [_ (reset! ref-1-atom ref-1)])
-      (let [_ (reset! ref-2-atom ref-2)])
-
-      (m/return nil))
-
-    (Thread/sleep 20)
-
-    ;; Run swap-1
-    (conc/run
-      (swapper @ep-1-atom 1 res-res-1 mem-res-1 @ref-1-atom))
-
-    ;; Let swap-1 dangle for a while
-    (Thread/sleep 100)
-
-    ;; Run swap-2
-    (conc/run
-      (swapper @ep-2-atom 2 res-res-2 mem-res-2 @ref-2-atom))
-
-    ;; Wait
-    (Thread/sleep 50)
-
     ;; Check results
-    (is (= @res-res-1 1002)) ;; 2 (swap) + 1000 (upd)
-    (is (= @res-res-2 1001)) ;; 1 (swap) + 1000 (upd)
+    (is (= 1002 res-1)) ;; 2 (swap) + 1000 (upd)
+    (is (= 1001 res-2)) ;; 1 (swap) + 1000 (upd)
 
     ;; Check refs
-    (is (= @mem-res-1 102))
-    (is (= @mem-res-2 101))
+    (is (= 102 mem-1))
+    (is (= 101 mem-2))
     ))
 
 (deftest swap-tt
