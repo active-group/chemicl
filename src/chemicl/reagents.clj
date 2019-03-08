@@ -208,7 +208,7 @@
 (defn ->reagent
   "Turn a monadic action into a reagent"
   [action]
-  (let [ch (conc/run-here (ch/new-channel))]
+  (let [ch @(conc/run (ch/new-channel))]
     (conc/run
       [res action]
       (react! (send ch) res))
