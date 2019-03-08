@@ -104,7 +104,6 @@
             c (m/free-bind-cont m)]
         (cond
           (m/free-return? m1)
-          #_(recur (c (m/free-return-val m1)))
           [:continue
            (update threads tid set-thread-state-m (c (m/free-return-val m1)))
            nil]
@@ -145,20 +144,6 @@
             #_[:continue
                (update threads tid set-thread-state-m (c tid))
                nil])
-
-          (conc/call-cc? m1)
-          (let [f (conc/call-cc-function m1)]
-            (recur (f c)))
-
-          (conc/throw? m1)
-          (let [k (conc/throw-k m1)
-                v (conc/throw-value m1)]
-            (recur (k v)))
-
-          (conc/exit-command? m1)
-          [:done
-           (dissoc threads tid)
-           nil]
 
           (conc/get-current-task-command? m1)
           (recur (c tid))
@@ -287,20 +272,6 @@
         [:done
          (dissoc threads tid)
          nil])
-
-      (conc/call-cc? m)
-      (let [f (conc/call-cc-function m)]
-        (recur (f (m/return nil))))
-
-      (conc/throw? m)
-      (let [k (conc/throw-k m)
-            v (conc/throw-value m)]
-        (recur (k v)))
-
-      (conc/exit-command? m)
-      [:done
-       (dissoc threads tid)
-       nil]
 
       (conc/print-command? m)
       (do
