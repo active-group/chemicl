@@ -699,6 +699,15 @@
      (test-runner/is= res :bounty)
      )))
 
+;; ----------------------
+;; --- Never ------------
+;; ----------------------
+
+(deftest never-t
+  (is (= (deref (conc/run
+                  (rea/react! rea/never nil))
+                10 ::timeout)
+         ::timeout)))
 
 ;; ----------------------
 ;; --- Computed ---------

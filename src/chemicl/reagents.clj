@@ -118,8 +118,16 @@
 (defn receive [[i o]]
   (swap o))
 
-(defn choose [l r]
-  (make-choose l r))
+(def ^{:doc "A reagent that just blocks forever."} never
+  ;; TODO: Markus probably knows a beter way to define this:
+  (upd @(conc/run-many-to-many (refs/new-ref nil))
+       (fn [_] nil)))
+
+(defn choose
+  ([] never)
+  ([r] r)
+  ([r & rs]
+   (reduce make-choose r rs)))
 
 (defn post-commit [f]
   (make-post-commit f (make-commit)))
