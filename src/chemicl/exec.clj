@@ -17,32 +17,20 @@
 
 
 ;; --- Task executor ---------
-;; stolen from core.async
-
-(defprotocol Xctr
-  (exec [e runnable] "execute runnable asynchronously"))
 
 (defn thread-pool-executor
   []
-  (let [executor-svc (Executors/newFixedThreadPool 8)]
-    (reify Xctr
-      (exec [this r]
-        (.execute executor-svc ^Runnable r)))))
+  (Executors/newScheduledThreadPool (max 8 (* 2 (.availableProcessors (Runtime/getRuntime))))))
 
 (def executor (delay (thread-pool-executor)))
 
 (defn run
   "Runs Runnable r in a thread pool thread"
   [^Runnable r]
-  (exec @executor r))
+  (.execute @executor r))
 
-;; FIXME: spwan a new timer thread each time. reuse a single timer thread for all invocations.
 (defn run-after
   "Runs Runnable r in a thread pool thread after msec"
-  [^Long msec
+  [^long msec
    ^Runnable r]
-  (let [timer (java.util.Timer.)
-        task (proxy [java.util.TimerTask] []
-               (run []
-                 (run r)))]
-    (.schedule timer task msec)))
+  (.schedule @executor r msec java.util.concurrent.TimeUnit/MILLISECONDS))
