@@ -425,58 +425,60 @@
 
 (defn- run-mn [m task runner]
   (runner
-    (fn []
-      (let [res (run-cont m task)]
-        (cond
+   (fn []
+     (loop [m m
+            task task]
+       (let [res (run-cont m task)]
+         (cond
 
-          ;; PARKING
+           ;; PARKING
 
-          (park-status? res)
-          (when-let [mm (block-task!
-                         task
-                         (park-status-continuation res))]
-            (run-many-to-many mm task))
+           (park-status? res)
+           (when-let [mm (block-task!
+                          task
+                          (park-status-continuation res))]
+             (recur mm task))
 
-          (unpark-status? res)
-          (let [cont (unpark-status-continuation res)
-                utask (unpark-status-unpark-task res)
-                uvalue (unpark-status-value res)]
-            ;; Unpark the parked task
-            (when-let [mm (signal-task! utask uvalue)]
-              (run-many-to-many mm utask))
+           (unpark-status? res)
+           (let [cont (unpark-status-continuation res)
+                 utask (unpark-status-unpark-task res)
+                 uvalue (unpark-status-value res)]
+             ;; Unpark the parked task on a new thread
+             (when-let [mm (signal-task! utask uvalue)]
+               (run-many-to-many mm utask))
 
-            ;; Continue the unparking task
-            (when cont
-              (run-many-to-many (cont true) task)))
-
-
-          ;; FORKING
-
-          (fork-status? res)
-          (let [cont (fork-status-continuation res)
-                fm (fork-status-monad res)
-                new-task (new-task!)]
-            ;; Run the forked task
-            (run-many-to-many fm new-task)
-
-            ;; Continue the parent task
-            (run-many-to-many (cont new-task) task))
+             ;; Continue the unparking task on this thread
+             (when cont
+               (recur (cont true) task)))
 
 
-          ;; TIMEOUT
+           ;; FORKING
 
-          (timeout-status? res)
-          (let [cont (timeout-status-continuation res)
-                msec (timeout-status-timeout res)]
-            (run-many-to-many-after (cont nil) task msec))
+           (fork-status? res)
+           (let [cont (fork-status-continuation res)
+                 fm (fork-status-monad res)
+                 new-task (new-task!)]
+             ;; Run the forked task on a new thread
+             (run-many-to-many fm new-task)
+
+             ;; Continue the parent task on this thread
+             (recur (cont new-task) task))
 
 
-          ;; QUITTING
+           ;; TIMEOUT
 
-          (exit-status? res)
-          (deliver (task-return-value-promise task)
-                   (exit-status-value res))
-          ))))
+           (timeout-status? res)
+           (let [cont (timeout-status-continuation res)
+                 msec (timeout-status-timeout res)]
+             (run-many-to-many-after (cont nil) task msec))
+
+
+           ;; QUITTING
+
+           (exit-status? res)
+           (deliver (task-return-value-promise task)
+                    (exit-status-value res))
+           )))))
 
   (task-return-value-promise task))
 
