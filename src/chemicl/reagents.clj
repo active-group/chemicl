@@ -95,8 +95,15 @@
 ;; -----------------------------------------------
 ;; API
 
-(defn upd [r f]
+(defn- m-lift1 [f]
+  (fn [v]
+    (m/return (f v))))
+
+(defn upd-m [r f]
   (make-upd r f (make-commit)))
+
+(defn upd [r f]
+  (make-upd r (m-lift1 f) (make-commit)))
 
 (defn cas [r ov nv]
   (upd r (fn [[current _]]
@@ -136,13 +143,21 @@
 (defn return [v]
   (make-return v (make-commit)))
 
+;; computed : (a -> Monad (R () b)) -> R a b
+(defn computed-m [f]
+  (make-computed f (make-commit)))
+
 ;; computed : (a -> R () b) -> R a b
 (defn computed [f]
-  (make-computed f (make-commit)))
+  (make-computed (m-lift1 f) (make-commit)))
+
+;; lift : (a -> Monad b) -> Reagent a b
+(defn lift-m [f]
+  (make-lift f (make-commit)))
 
 ;; lift : (a -> b) -> Reagent a b
 (defn lift [f]
-  (make-lift f (make-commit)))
+  (make-lift (m-lift1 f) (make-commit)))
 
 (defn nth [a n]
   (make-nth a n (make-commit)))
@@ -397,15 +412,13 @@
 
   ;; read current value
   [ov (refs/read r)]
-  (let [res (f [ov a])])
+  ;; f must be monadic:
+  [res (f [ov a])]
 
-  ;; res might be a monadic program
-  [resres (cm/maybe-unwrap-monadic res)]
-
-  (if resres
+  (if res
     ;; record cas
     (m/monadic
-     (let [[nv retv] resres])
+     (let [[nv retv] res])
      (try-react k retv (-> rx
                            (rx-data/add-cas
                             [(refs/ref-data-ref r) ov nv])
@@ -416,8 +429,12 @@
 
 (defmonadic try-react-post-commit [rea a rx oref ctx]
   (let [f (post-commit-f rea)
-        k (post-commit-k rea)])
-  (try-react k a (rx-data/add-action rx (f a)) oref ctx))
+        k (post-commit-k rea)
+        act (try (f a)
+                 (catch Exception e
+                   (println "Exception in post-commit:" (pr-str e))
+                   (throw e)))])
+  (try-react k a (rx-data/add-action rx act) oref ctx))
 
 (defmonadic try-react-choose [rea a rx oref ctx]
   (let [l (choose-l rea)
@@ -440,20 +457,18 @@
 (defmonadic try-react-computed [rea a rx oref ctx]
   (let [f (computed-function rea)
         k (computed-k rea)])
-  (let [res (f a)])
 
-  ;; res might be a monadic program
-  [resres (cm/maybe-unwrap-monadic res)]
+  ;; f must be monadic, and return a reagent
+  [res (f a)]
 
-  ;; resres is a function k -> reagent
-  (try-react (>> resres k) nil rx oref ctx))
+  (try-react (>> res k) nil rx oref ctx))
 
 (defmonadic try-react-lift [rea a rx oref ctx]
   (let [f (lift-function rea)
         k (lift-k rea)])
 
-  ;; f might be a monadic program
-  [res (cm/maybe-unwrap-monadic (f a))]
+  ;; f must be monadic
+  [res (f a)]
 
   (try-react k res rx oref ctx))
 

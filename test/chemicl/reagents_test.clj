@@ -291,10 +291,10 @@
       [ts (refs/new-ref 1337)]
 
       [res (rea/react!
-            (rea/upd ts
-                     (fn [[ov retv]]
-                       (m/return
-                        [(inc ov) (dec retv)]))) 23)]
+            (rea/upd-m ts
+                       (fn [[ov retv]]
+                         (m/return
+                          [(inc ov) (dec retv)]))) 23)]
 
       [ts-val (refs/read ts)]
       (let [_ (reset! res-res res)
@@ -741,6 +741,15 @@
      (test-runner/is= 24 res)
      )))
 
+(deftest computed-monadic-t
+  (test-runner/run
+    (m/monadic
+     [res (rea/react!
+           (rea/computed-m
+            (fn [a]
+              (m/return (rea/return (inc a))))) 23)]
+     (test-runner/is= 24 res)
+     )))
 
 ;; ----------------------
 ;; --- Lift -------------
@@ -774,7 +783,7 @@
   (test-runner/run
     (m/monadic
      [res (rea/react!
-           (rea/lift
+           (rea/lift-m
             (fn [a]
               (m/return (inc a))))
            23)]
