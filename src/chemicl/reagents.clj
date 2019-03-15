@@ -55,6 +55,8 @@
   commit?
   [])
 
+(def commit (make-commit))
+
 (acr/define-record-type Return
   (make-return v k)
   return?
@@ -100,10 +102,10 @@
     (m/return (f v))))
 
 (defn upd-m [r f]
-  (make-upd r f (make-commit)))
+  (make-upd r f commit))
 
 (defn upd [r f]
-  (make-upd r (m-lift1 f) (make-commit)))
+  (make-upd r (m-lift1 f) commit))
 
 (defn cas [r ov nv]
   (upd r (fn [[current _]]
@@ -112,10 +114,10 @@
              nil))))
 
 (defn read [r]
-  (make-read r (make-commit)))
+  (make-read r commit))
 
 (defn swap [ep]
-  (make-swap ep (make-commit)))
+  (make-swap ep commit))
 
 ;; if swap is too confusing, try send and receive
 
@@ -137,30 +139,30 @@
    (reduce make-choose r rs)))
 
 (defn post-commit [f]
-  (make-post-commit f (make-commit)))
+  (make-post-commit f commit))
 
 ;; return : a -> Reagent () a
 (defn return [v]
-  (make-return v (make-commit)))
+  (make-return v commit))
 
 ;; computed : (a -> Monad (R () b)) -> R a b
 (defn computed-m [f]
-  (make-computed f (make-commit)))
+  (make-computed f commit))
 
 ;; computed : (a -> R () b) -> R a b
 (defn computed [f]
-  (make-computed (m-lift1 f) (make-commit)))
+  (make-computed (m-lift1 f) commit))
 
 ;; lift : (a -> Monad b) -> Reagent a b
 (defn lift-m [f]
-  (make-lift f (make-commit)))
+  (make-lift f commit))
 
 ;; lift : (a -> b) -> Reagent a b
 (defn lift [f]
-  (make-lift (m-lift1 f) (make-commit)))
+  (make-lift (m-lift1 f) commit))
 
 (defn nth [a n]
-  (make-nth a n (make-commit)))
+  (make-nth a n commit))
 
 (defn first [a]
   (nth a 0))
@@ -202,7 +204,7 @@
   values: :block, :retry or a map containing (some of) the
   keys :context, :result, :reaction."
   [tr]
-  (make-my-reagent tr (make-commit)))
+  (make-my-reagent tr commit))
 
 (defmacro defreagent [name args1 args2 body]
   `(defn ~name [~@args1]
@@ -349,8 +351,8 @@
      
      (let [new-rx (rx-data/rx-union rx sender-rx)
            new-rea (>>> sender-k
-                        (make-complete-offer sender-oref (make-commit))
-                        (make-return sender-a (make-commit))
+                        (make-complete-offer sender-oref commit)
+                        (make-return sender-a commit)
                         k)])
 
      ;; run combined reagent
