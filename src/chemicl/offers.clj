@@ -15,17 +15,18 @@
 ;; --- Offers ---------
 ;; An offer is a simple non-deterministic state machine
 
-(defn empty? [[status]]
-  (= status
-     :empty))
+(defonce ^:private empty-state [:empty])
+(defonce ^:private rescinded-state [:rescinded])
+
+(defn empty? [v]
+  (identical? v empty-state))
 
 (defn completed? [[status]]
   (= status
      :completed))
 
-(defn rescinded? [[status]]
-  (= status
-     :rescinded))
+(defn rescinded? [v]
+  (identical? v rescinded-state))
 
 (defn waiting? [[status]]
   (= status
@@ -48,7 +49,7 @@
 ;; ... beginning with :empty
 
 (defmonadic new-offer []
-  [oref (kcas/new-ref [:empty])]
+  [oref (kcas/new-ref empty-state)]
   (m/return oref))
 
 ;; state transitions
@@ -66,7 +67,7 @@
 
       (waiting? o)
       (m/monadic
-       [succ (kcas/cas oref o [:rescinded])]
+       [succ (kcas/cas oref o rescinded-state)]
        (if succ
          ;; unpark
          (m/monadic
@@ -77,7 +78,7 @@
 
       (empty? o)
       (m/monadic
-       [succ (kcas/cas oref o [:rescinded])]
+       [succ (kcas/cas oref o rescinded-state)]
        (if succ
          (m/return (backoff/done (maybe/nothing)))
          (m/return (backoff/retry-backoff))))
