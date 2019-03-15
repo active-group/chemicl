@@ -426,8 +426,10 @@
 (defn- run-mn [m task runner]
   (runner
    (fn []
-     (loop [m m
-            task task]
+     ;; Note: this should loop to continue with the same tasks. Other
+     ;; tasks should be handed to the thread-pool via
+     ;; run-many-to-many.
+     (loop [m m]
        (let [res (run-cont m task)]
          (cond
 
@@ -437,7 +439,7 @@
            (when-let [mm (block-task!
                           task
                           (park-status-continuation res))]
-             (recur mm task))
+             (recur mm))
 
            (unpark-status? res)
            (let [cont (unpark-status-continuation res)
@@ -449,7 +451,7 @@
 
              ;; Continue the unparking task on this thread
              (when cont
-               (recur (cont true) task)))
+               (recur (cont true))))
 
 
            ;; FORKING
@@ -462,7 +464,7 @@
              (run-many-to-many fm new-task)
 
              ;; Continue the parent task on this thread
-             (recur (cont new-task) task))
+             (recur (cont new-task)))
 
 
            ;; TIMEOUT
@@ -487,13 +489,20 @@
    (run-many-to-many m (new-task!)))
 
   ([m task]
-   (run-mn m task x/run)))
+   (run-many-to-many m task x/run))
+
+  ([m task runner]
+   (run-mn m task runner)))
 
 (defn run-many-to-many-after [m task delay]
   (run-mn m task (partial x/run-after delay)))
 
+(defn- this-thread-runner [f]
+  (f))
+
 (defn run-many-to-many!
+  ;; Note: this 
   ([m]
-   (deref (run-many-to-many m)))
+   (deref (run-many-to-many m (new-task!) this-thread-runner)))
   ([m timeout-ms timeout-val]
-   (deref (run-many-to-many m) timeout-ms timeout-val)))
+   (deref (run-many-to-many m (new-task!) this-thread-runner) timeout-ms timeout-val)))
