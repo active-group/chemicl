@@ -489,3 +489,9 @@
 
 (defn run-many-to-many-after [m task delay]
   (run-mn m task (partial x/run-after delay)))
+
+(defn run-many-to-many!
+  ([m]
+   (deref (run-many-to-many m)))
+  ([m timeout-ms timeout-val]
+   (deref (run-many-to-many m) timeout-ms timeout-val)))

@@ -129,7 +129,7 @@
 
 (def ^{:doc "A reagent that just blocks forever."} never
   ;; TODO: Markus probably knows a beter way to define this:
-  (upd @(conc/run-many-to-many (refs/new-ref nil))
+  (upd (conc/run-many-to-many! (refs/new-ref nil))
        (fn [_] nil)))
 
 (defn choose

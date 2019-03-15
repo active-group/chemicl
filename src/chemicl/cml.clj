@@ -32,7 +32,7 @@
           aborts))
 
 (defn- demonad [m] ;; TODO: this should not be needed.
-  @(c/run-many-to-many m))
+  (c/run-many-to-many! m))
 
 ;; the primitives
 
@@ -228,7 +228,6 @@
 (defn sync
   "Synchronize the given event, blocking the current thread until it succeeds, resp. returning `timeout-val` after a timeout."
   ([ev]
-   (deref (sync-p ev)))
+   (c/run-many-to-many! (sync-m ev)))
   ([ev timeout-ms timeout-val]
-   ;; TODO: there should be a synchronous run-many-to-many (with timeout), so we can do optimizations there.
-   (deref (sync-p ev) timeout-ms timeout-val)))
+   (c/run-many-to-many! (sync-m ev) timeout-ms timeout-val)))
