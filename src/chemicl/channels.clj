@@ -19,3 +19,9 @@
   (m/return
    [(make-endpoint l2 l1) 
     (make-endpoint l1 l2)])) 
+
+(defn channel? [v]
+  (and (vector? v)
+       (= 2 (count v))
+       (instance? Endpoint (first v))
+       (instance? Endpoint (second v))))
