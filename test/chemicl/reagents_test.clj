@@ -842,3 +842,161 @@
            (rea/&&& (rea/lift inc)
                     (rea/lift dec)) 42)]
      (test-runner/is= [43 41] res))))
+
+
+;; ----------------------
+;; --- Performance ------
+;; ----------------------
+
+(deftest channel-performance-no-interference-test
+  (let [comm-ch @(conc/run (channels/new-channel))
+        stop-ch @(conc/run (channels/new-channel))
+        secs 10]
+
+    ;; receiver thread
+    (letfn [(receiver [i]
+              (m/monadic
+               [in (rea/react! (rea/choose
+                                (rea/receive comm-ch)
+                                (rea/receive stop-ch)) nil)]
+
+               (case in
+                 :continue
+                 (receiver (inc i))
+
+                 :stop
+                 (m/return i))))
+
+            (sender [i]
+              (m/monadic
+               [res (rea/react! (rea/choose
+                                 (rea/send comm-ch)
+                                 (rea/receive stop-ch)) :continue)]
+
+               (if (= res :stop)
+                 (m/return i)
+                 ;; else continue
+                 (sender (inc i))
+                 )))
+            ]
+
+      (let [
+            ;; start sender
+            senderp (conc/run (sender 0))
+
+            ;; start receiver
+            receiverp (conc/run (receiver 0))
+            ]
+
+        ;; wait a lil
+        (Thread/sleep (* secs 1000))
+
+        ;; stop em
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+
+        (let [n @receiverp
+              ips (/ n secs)]
+          (println (double ips) "receives per second")
+          (is (> ips 500)))
+        ))))                          ;
+
+(deftest channel-performance-with-interference-test
+  (let [comm-ch @(conc/run (channels/new-channel))
+        stop-ch @(conc/run (channels/new-channel))
+        secs 5]
+
+    ;; receiver thread
+    (letfn [(receiver [i]
+              (m/monadic
+               [in (rea/react! (rea/choose
+                                (rea/receive comm-ch)
+                                (rea/receive stop-ch)) nil)]
+
+               (case in
+                 :continue
+                 (receiver (inc i))
+
+                 :stop
+                 (m/return i))))
+
+            (sender [i]
+              (m/monadic
+               [res (rea/react! (rea/choose
+                                 (rea/send comm-ch)
+                                 (rea/receive stop-ch)) :continue)]
+
+               (if (= res :stop)
+                 (m/return i)
+                 ;; else continue
+                 (sender (inc i))
+                 )))
+            ]
+
+      (let [
+            ;; start sender 1
+            senderp-1 (conc/run (sender 0))
+
+            ;; start sender 2
+            senderp-2 (conc/run (sender 0))
+
+            ;; start receiver 1
+            receiverp-1 (conc/run (receiver 0))
+
+            ;; start receiver 2
+            receiverp-2 (conc/run (receiver 0))
+            ]
+
+        ;; wait a lil
+        (Thread/sleep (* secs 1000))
+
+        ;; stop em
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+
+        (let [n-1 @senderp-1
+              n-2 @senderp-2
+              ips (/ (+ n-1 n-2) secs)]
+          (println (double ips) "sends per second")
+          (is (> ips 500)))
+        ))))
+
+(deftest ref-performance-test
+  (let [ref @(conc/run (refs/new-ref 0))
+        stop-ch @(conc/run (channels/new-channel))
+        secs 10]
+
+    ;; receiver thread
+    (letfn [(one-upper [i]
+              (m/monadic
+               [in (rea/react! (rea/choose
+                                (rea/receive stop-ch)
+                                (rea/upd ref (fn [[ov _]]
+                                               [(inc ov) nil]))))]
+
+               (if (= in :stop)
+                 (m/return i)
+                 (one-upper (inc i)))))]
+
+      (let [
+            ;; start first
+            upper-1 (conc/run (one-upper 0))
+
+            ;; start second
+            upper-2 (conc/run (one-upper 0))
+            ]
+
+        ;; wait a lil
+        (Thread/sleep (* secs 1000))
+
+        ;; stop em
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+        (conc/run (rea/react! (rea/send stop-ch) :stop))
+
+        (let [n @upper-1
+              ips (/ n secs)]
+          (println (double ips) "updates per second")
+          (is (> ips 1000)))
+          ))))

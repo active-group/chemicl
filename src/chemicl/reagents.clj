@@ -624,5 +624,5 @@
     :else
     (m/return res)))
 
-(defmonadic react! [reagent a]
+(defmonadic react! [reagent & [a]]
   (with-offer reagent a 0 (atom nil)))

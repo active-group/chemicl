@@ -281,6 +281,9 @@
 
 ;; --- (Inner) monad runner ---------
 
+(defn safe-println [& more]
+  (.write *out* (str (clojure.string/join " " more) "\n")))
+
 (defn- run-cont [m task]
   (loop [m m
          task task]
@@ -355,7 +358,7 @@
 
           (print-command? m1)
           (do
-            (apply println (print-command-line m1))
+            (apply safe-println (print-command-line m1))
             (recur (c nil) task))))
 
       (m/free-return? m)
@@ -414,7 +417,7 @@
 
       (print-command? m)
       (do
-        (apply println (print-command-line m))
+        (apply safe-println (print-command-line m))
         (make-exit-status nil))
       )))
 
