@@ -129,6 +129,23 @@
     (is (= (sync-now ev)
            21))))
 
+(deftest referential-equality-test
+  (let [ch (cml/channel)]
+    (is (= (cml/receive ch)
+           (cml/receive ch)))
+    (is (= (cml/send ch 1)
+           (cml/send ch 1))))
+  (is (= (cml/always 42) (cml/always 42)))
+  (is (= (cml/timeout 10) (cml/timeout 10)))
+  (is (= (cml/choose cml/never)
+         (cml/choose cml/never)))
+  (is (= (cml/guard +)
+         (cml/guard +)))
+  (is (= (cml/with-nack +)
+         (cml/with-nack +)))
+  (is (= (cml/wrap (cml/always 42) inc)
+         (cml/wrap (cml/always 42) inc))))
+
 (deftest performance-test
   (let [run-for-secs 20]
     (println)
@@ -171,7 +188,7 @@
                              (println "***** INVARIANT VIOLATION: Missed message *****"))
                            (if (zero? in) ;; first as a warmup
                              @start
-                             (when (zero? (mod (dec in) 100))
+                             #_(when (zero? (mod (dec in) 1000))
                                (print-throughput in)))                         
                            (recur in))
                          i))))]

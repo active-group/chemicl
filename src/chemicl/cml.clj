@@ -42,25 +42,24 @@
           [r/never nil]))
 
 (defrecord ^:private Always
-  [v]
-  Event (resolve [_]
-          [(r/return v) nil]))
+  [v res] ;; TODO: remove res from print
+  Event (resolve [_] res))
 
 (defrecord ^:private Send
-  [ch v]
-  Event (resolve [_]
-          [(r/>>> (r/return v) (r/send ch)) nil]))
+  [ch v res] ;; TODO: remove res from print
+  Event (resolve [_] res))
 
 (defrecord ^:private Receive
-  [ch]
-  Event (resolve [_]
-          [(r/receive ch) nil]))
+  [ch res] ;; TODO: remove res from print
+  Event (resolve [_] res))
 
 (defrecord ^:private Wrap
   [ev f args]
   Event (resolve [_]
-          (let [[r abort] (resolve ev)]
-            [(r/>>> r (r/lift (fn [v] (apply f v args))))
+          (let [[r abort] (resolve ev)
+                ;; TODO: static fn, cache it, then remove rea from print
+                rea (r/lift (fn [v] (apply f v args)))]
+            [(r/>>> r rea)
              abort])))
 
 (defrecord ^:private WrapAbort
@@ -80,6 +79,7 @@
 (defrecord ^:private Timeout
   [ms]
   Event (resolve [_]
+          ;; TODO: tmo/timeout seemed to start on creation? should start on evaluation. Then we could cache it.
           [(tmo/timeout ms) nil]))
 
 ;; the api
@@ -92,7 +92,8 @@
   "Returns an event that is available immediately, yielding the given
   value."
   [v]
-  (Always. v))
+  (Always. v
+           [(r/return v) nil]))
 
 (defn channel
   "Returns a new synchronous channel."
@@ -109,14 +110,16 @@
   could be sent over the given channel `ch`."
   [ch v]
   (assert (channel? ch) (pr-str ch))
-  (Send. ch v))
+  (Send. ch v
+         [(r/>>> (r/return v) (r/send ch)) nil]))
 
 (defn receive
   "Returns an event that will become available after a value could be
   received over the given channel `ch`, yielding that value."
   [ch]
   (assert (channel? ch) (pr-str ch))
-  (Receive. ch))
+  (Receive. ch 
+            [(r/receive ch) nil]))
 
 (defn wrap
   "Returns an event equivalent to `ev`. After that is synchronized upon,
