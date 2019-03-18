@@ -22,7 +22,7 @@
   []
   (Executors/newScheduledThreadPool (max 8 (* 2 (.availableProcessors (Runtime/getRuntime))))))
 
-(def executor (delay (thread-pool-executor)))
+(defonce executor (delay (thread-pool-executor)))
 
 (defn run
   "Runs Runnable r in a thread pool thread"
