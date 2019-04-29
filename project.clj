@@ -7,4 +7,7 @@
                  [active-clojure "0.23.0"]]
 
   :profiles {:dev {:resource-paths ["resources-test"]}}
+
+  :test-selectors {:default (complement :slow)
+                   :all (constantly true)}
   )

@@ -10,7 +10,7 @@
             [active.clojure.monad :as m]
             [chemicl.monad :as cm :refer [defmonadic whenm]]))
 
-(deftest rescind-rescind-tt
+(deftest ^:slow rescind-rescind-tt
   (test-runner/run
     (m/monadic
      ;; init
@@ -105,7 +105,7 @@
 (defmacro => [l r]
   `(or (not ~l) ~r))
 
-(deftest rescind-complete-tt
+(deftest ^:slow rescind-complete-tt
   (test-runner/run
     (m/monadic
      ;; init

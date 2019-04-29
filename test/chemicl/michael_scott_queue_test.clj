@@ -8,7 +8,7 @@
 
 
 
-(deftest push-push-tt
+(deftest ^:slow push-push-tt
   (test-runner/run
     (m/monadic
      [q (msq/create)]
@@ -104,7 +104,7 @@
                              (msq/cursor-value cur-3))))
      )))
 
-(deftest push-clean-until-tt
+(deftest ^:slow push-clean-until-tt
   (test-runner/run
     (m/monadic
      [q (msq/create)]

@@ -113,7 +113,7 @@
             @succ-2))
     ))
 
-(deftest kcas-interference-3-t
+(deftest ^:slow kcas-interference-3-t
   ;; run test
   (test-runner/run
    (m/monadic
