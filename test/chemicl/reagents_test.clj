@@ -965,37 +965,30 @@
 
 (deftest ref-performance-test
   (let [ref @(conc/run (refs/new-ref 0))
-        stop-ch @(conc/run (channels/new-channel))
-        secs 10]
+        n 50000
+        start (System/currentTimeMillis)]
 
     ;; receiver thread
     (letfn [(one-upper [i]
               (m/monadic
-               [in (rea/react! (rea/choose
-                                (rea/receive stop-ch)
-                                (rea/upd ref (fn [[ov _]]
-                                               [(inc ov) nil]))))]
+               [in (rea/react! (rea/upd ref (fn [[ov _]]
+                                              [(inc ov) (inc ov)])))]
 
-               (if (= in :stop)
-                 (m/return i)
+               (if (>= in n)
+                 (m/return (System/currentTimeMillis))
                  (one-upper (inc i)))))]
 
       (let [
             ;; start first
-            upper-1 (conc/run (one-upper 0))
-
-            ;; start second
-            upper-2 (conc/run (one-upper 0))
+            result (conc/run (one-upper 0))
             ]
 
         ;; wait a lil
-        (Thread/sleep (* secs 1000))
+        (Thread/sleep 4000)
 
-        ;; stop em
-        (conc/run (rea/react! (rea/send stop-ch) :stop))
-        (conc/run (rea/react! (rea/send stop-ch) :stop))
-
-        (let [n @upper-1
+        (let [end @result
+              duration (- end start)
+              secs (/ duration 1000)
               ips (/ n secs)]
           (println (double ips) "updates per second")
           (is (> ips 1000)))

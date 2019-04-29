@@ -470,20 +470,20 @@
     :else
     (m/return res)))
 
-#_(defmonadic without-offer [reagent a backoff-counter]
-  [res (try-react reagent a rx-data/empty-rx nil)]
+(defmonadic without-offer [reagent a backoff-counter ctx]
+  [res (try-react reagent a rx-data/empty-rx nil ctx)]
   (cond
     (= :block res)
     (m/monadic
-     (with-offer reagent a backoff-counter))
+     (with-offer reagent a backoff-counter ctx))
 
     (= :retry res)
     (m/monadic
      (backoff/timeout-with-counter backoff-counter)
-     (without-offer reagent a (inc backoff-counter)))
+     (without-offer reagent a (inc backoff-counter) ctx))
 
     :else
     (m/return res)))
 
 (defmonadic react! [reagent & [a]]
-  (with-offer reagent a 0 (atom nil)))
+  (without-offer reagent a 0 (atom nil)))
