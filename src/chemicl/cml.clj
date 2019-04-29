@@ -9,11 +9,11 @@
 
 (defprotocol Event
   (resolve [this] "Is called at 'synchronization time', and must
-  return a tuple `[reagent abort]`, where abort is nil, or a function
-  of no arguments, that is called when this event is not selected in
-  a [[choose]], and must return an action in the concurrency
-  monad. That action is scheduled on a new thread after the
-  synchronization."))
+  return a monadic command that evaluates to a tuple `[reagent
+  abort]`, where abort is nil, or a function of no arguments, that is
+  called when this event is not selected in a [[choose]], and must
+  return an action in the concurrency monad. That action is scheduled
+  on a new thread after the synchronization."))
 
 (defn event?
   "Returns wheather v is an event."
@@ -39,48 +39,52 @@
 (defrecord ^:private Never
   []
   Event (resolve [_]
-          [r/never nil]))
+          (monad/return [r/never nil])))
 
 (defrecord ^:private Always
-  [v res] ;; TODO: remove res from print
-  Event (resolve [_] res))
+  [v]
+  Event (resolve [_]
+          (monad/return [(r/return v) nil])))
 
 (defrecord ^:private Send
-  [ch v res] ;; TODO: remove res from print
-  Event (resolve [_] res))
+  [ch v]
+  Event (resolve [_]
+          (monad/return [(r/>>> (r/return v) (r/send ch)) nil])))
 
 (defrecord ^:private Receive
-  [ch res] ;; TODO: remove res from print
-  Event (resolve [_] res))
+  [ch]
+  Event (resolve [_]
+          (monad/return [(r/receive ch) nil])))
 
 (defrecord ^:private Wrap
   [ev f args]
   Event (resolve [_]
-          (let [[r abort] (resolve ev)
-                ;; TODO: static fn, cache it, then remove rea from print
-                rea (r/lift (fn [v] (apply f v args)))]
-            [(r/>>> r rea)
-             abort])))
+          (monad/monadic
+           [[r abort] (resolve ev)]
+           (let [rea (r/lift (fn [v] (apply f v args)))])
+           (monad/return [(r/>>> r rea)
+                          abort]))))
 
 (defrecord ^:private WrapAbort
   [ev f args]
   Event (resolve [_]
-          (let [[reagent a] (resolve ev)
-                ab (fn [] ;; TODO fork should be this.
-                     (c/fork (apply f args)))]
-            [reagent (comp-abort a ab)])))
+          (monad/monadic
+           [[reagent a] (resolve ev)]
+           (let [ab (fn [] ;; TODO fork should be this.
+                      (c/fork (apply f args)))])
+           (monad/return [reagent (comp-abort a ab)]))))
 
 (defrecord ^:private Guard
   [f args]
   Event (resolve [_]
-          (let [ev (apply f args)]
-            (resolve ev))))
+          (monad/monadic
+           [ev (apply f args)]
+           (resolve ev))))
 
 (defrecord ^:private Timeout
   [ms]
   Event (resolve [_]
-          ;; TODO: tmo/timeout seemed to start on creation? should start on evaluation. Then we could cache it.
-          [(tmo/timeout ms) nil]))
+          (monad/return [(tmo/timeout ms) nil])))
 
 ;; the api
 
@@ -92,13 +96,17 @@
   "Returns an event that is available immediately, yielding the given
   value."
   [v]
-  (Always. v
-           [(r/return v) nil]))
+  (Always. v))
+
+(defn channel-m
+  "Monadic command that evaluates to a new synchronous channel."
+  []
+  (ch/new-channel))
 
 (defn channel
   "Returns a new synchronous channel."
   []
-  (demonad (ch/new-channel)))
+  (demonad (channel-m)))
 
 (defn channel?
   "Return wheather v is a [[channel]]."
@@ -110,16 +118,14 @@
   could be sent over the given channel `ch`."
   [ch v]
   (assert (channel? ch) (pr-str ch))
-  (Send. ch v
-         [(r/>>> (r/return v) (r/send ch)) nil]))
+  (Send. ch v))
 
 (defn receive
   "Returns an event that will become available after a value could be
   received over the given channel `ch`, yielding that value."
   [ch]
   (assert (channel? ch) (pr-str ch))
-  (Receive. ch 
-            [(r/receive ch) nil]))
+  (Receive. ch))
 
 (defn wrap
   "Returns an event equivalent to `ev`. After that is synchronized upon,
@@ -143,12 +149,20 @@
   (assert (ifn? f) (pr-str f))
   (apply wrap-abort-m ev monad-lift f args))
 
+(defn guard-m
+  "Returns an event that when it's synchronized, `f` will be called
+  which must return an monad command that evaluates to an event which
+  is then synchronized upon instead."
+  [f & args]
+  (assert (ifn? f) (pr-str f))
+  (Guard. f args))
+
 (defn guard
   "Returns an event that when it's synchronized, `f` will be called which
   must return an event which is then synchronized upon instead."
   [f & args]
   (assert (ifn? f) (pr-str f))
-  (Guard. f args))
+  (apply guard-m monad-lift f args))
 
 (defn timeout
   "Returns an event that will become available the given amount of
@@ -160,11 +174,11 @@
 
 (defrecord RefIs [ref predicate]
   Event (resolve [_]
-          [(r/upd ref
-                  (fn [[old input]]
-                    (when (predicate old)
-                      [old old])))
-           nil]))
+          (monad/return [(r/upd ref
+                                (fn [[old input]]
+                                  (when (predicate old)
+                                    [old old])))
+                         nil])))
 
 (defn ref-is
   "Returns an event that becomes available when the given reference
@@ -174,13 +188,26 @@
   (RefIs. ref predicate))
 
 (defn- with-nack-internal [f args]
-  (let [ref (demonad (refs/new-ref false))
-        nack-ev (wrap (ref-is ref identity)
-                      (constantly nil))
-        nack (fn []
-               (refs/reset ref true))]
-    (wrap-abort-m (apply f nack-ev args)
-                  nack)))
+  (monad/monadic
+   [ref (refs/new-ref false)]
+   (let [nack-ev (wrap (ref-is ref identity)
+                       (constantly nil))])
+   [ev (apply f nack-ev args)]
+   (monad/return (wrap-abort-m ev
+                               refs/reset ref true))))
+
+(defn with-nack-m
+  "Returns an event, for which `(f nack-ev & args)` is called at
+  synchronization time, which must a monadic command evaluating to
+  another event which is then synchronized on instead. The given
+  `nack-ev` becomes available if this event is not the selected one in
+  the synchronization of a [[choose]] event."
+  [f & args]
+  (guard-m with-nack-internal f args))
+
+(defn- monad-lift2 [ev f & args]
+  (monad/free-bind (monad/return nil)
+                   (fn [_] (monad/return (apply f ev args)))))
 
 (defn with-nack
   "Returns an event, for which `(f nack-ev & args)` is called at
@@ -189,7 +216,8 @@
   this event is not the selected one in the synchronization of
   a [[choose]] event."
   [f & args]
-  (guard with-nack-internal f args))
+  (assert (ifn? f) f)
+  (apply with-nack-m monad-lift2 f args))
 
 (defn- abort-others [aborts-map except-idx]
   (monad/sequ_ (reduce-kv (fn [r ai abort]
@@ -201,17 +229,19 @@
 
 (defrecord Choose [evs]
   Event (resolve [_]
-          (let [reas-aborts (map resolve evs)
-                aborts-map (into {} (map-indexed vector
-                                                 (map second reas-aborts)))]
-            [(apply r/choose (map-indexed (fn [idx rea]
-                                            (r/>>> rea (r/post-commit (fn cho-post-abort [_]
-                                                                        (abort-others aborts-map idx)))))
-                                          (map first reas-aborts)))
-             ;; abort commit => abort all:
-             (when-not (empty? aborts-map)
-               (fn cho-abort-all []
-                 (abort-others aborts-map -1)))])))
+          (monad/monadic
+           [reas-aborts (monad/sequ (map resolve evs))]
+           (monad/return
+            (let [aborts-map (into {} (map-indexed vector
+                                                   (map second reas-aborts)))]
+              [(apply r/choose (map-indexed (fn [idx rea]
+                                              (r/>>> rea (r/post-commit (fn cho-post-abort [_]
+                                                                          (abort-others aborts-map idx)))))
+                                            (map first reas-aborts)))
+               ;; abort commit => abort all:
+               (when-not (empty? aborts-map)
+                 (fn cho-abort-all []
+                   (abort-others aborts-map -1)))])))))
 
 
 (defn choose
@@ -223,7 +253,9 @@
 ;; synchronization
 
 (defn sync-m "Synchronize the given event as a command in the concurrency monad." [ev]
-  (r/react! (first (resolve ev)) nil))
+  (monad/monadic
+   [[rea _] (resolve ev)]
+   (r/react! rea nil)))
 
 (defn sync-p "Synchronize the given event, returning a promise of the result." [ev]
   (c/run-many-to-many (sync-m ev)))
