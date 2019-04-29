@@ -359,27 +359,32 @@
           (print-command? m1)
           (do
             (apply safe-println (print-command-line m1))
-            (recur (c nil) task))))
+            (recur (c nil) task))
+
+          :else
+          (throw (ex-info (str "Unknown monad command: " m1) {:command m1}))))
 
       (m/free-return? m)
       (make-exit-status
        (m/free-return-val m))
 
       (new-ref-command? m)
-      (make-exit-status nil)
+      (make-exit-status (atom (new-ref-command-init m)))
 
       (cas-command? m)
-      (compare-and-set! (cas-command-ref m)
-                        (cas-command-old-value m)
-                        (cas-command-new-value m))
+      (make-exit-status
+       (compare-and-set! (cas-command-ref m)
+                         (cas-command-old-value m)
+                         (cas-command-new-value m)))
 
       (read-command? m)
       (make-exit-status
        (deref (read-command-ref m)))
 
       (reset-command? m)
-      (reset! (reset-command-ref m)
-              (reset-command-new-value m))
+      (make-exit-status
+       (reset! (reset-command-ref m)
+               (reset-command-new-value m)))
 
       (park-command? m)
       (make-exit-status nil)
@@ -419,7 +424,9 @@
       (do
         (apply safe-println (print-command-line m))
         (make-exit-status nil))
-      )))
+
+      :else
+      (throw (ex-info (str "Unknown monad command: " m) {:command m})))))
 
 
 ;; --- Outside runner ---------
@@ -483,7 +490,9 @@
            (exit-status? res)
            (deliver (task-return-value-promise task)
                     (exit-status-value res))
-           )))))
+
+           :else
+           (throw (ex-info (str "Unknown exit status " res) {:status res})))))))
 
   (task-return-value-promise task))
 
@@ -501,7 +510,7 @@
   (run-mn m task (partial x/run-after delay)))
 
 (defn- this-thread-runner [f]
-  (f))
+  ((x/wrap f)))
 
 (defn run-many-to-many!
   ;; Note: this 

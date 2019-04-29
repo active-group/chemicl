@@ -18,19 +18,31 @@
 
 ;; --- Task executor ---------
 
-(defn thread-pool-executor
+(defn- thread-pool-executor
   []
   (Executors/newScheduledThreadPool (max 8 (* 2 (.availableProcessors (Runtime/getRuntime))))))
 
-(defonce executor (delay (thread-pool-executor)))
+(defonce ^:private executor (delay (thread-pool-executor)))
+
+(def ^:private debug true)
+
+(defn ^Runnable wrap [^Runnable r]
+  (if debug
+    (fn []
+      (try (.run r)
+           ;; TODO: put something equiv in conc ?
+           (catch Throwable t
+             (println "Uncaught exception in thread" t)
+             (throw t))))
+    r))
 
 (defn run
   "Runs Runnable r in a thread pool thread"
   [^Runnable r]
-  (.execute @executor r))
+  (.execute @executor (wrap r)))
 
 (defn run-after
   "Runs Runnable r in a thread pool thread after msec"
   [^long msec
    ^Runnable r]
-  (.schedule @executor r msec java.util.concurrent.TimeUnit/MILLISECONDS))
+  (.schedule @executor (wrap r) msec java.util.concurrent.TimeUnit/MILLISECONDS))

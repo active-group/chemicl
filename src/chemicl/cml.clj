@@ -31,7 +31,7 @@
           nil
           aborts))
 
-(defn- demonad [m] ;; TODO: this should not be needed.
+(defn- demonad [m]
   (c/run-many-to-many! m))
 
 ;; the primitives

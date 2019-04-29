@@ -236,7 +236,9 @@
           #_[:continue
              (update threads tid set-thread-state-m (c nil))
              nil]
-          ))
+
+          :else
+          (throw (ex-info (str "Unknown monad command: " m1) {:command m1}))))
 
       (m/free-return? m)
       [:done
@@ -341,6 +343,9 @@
       [:done
        (dissoc threads tid)
        nil]
+
+      :else
+      (throw (ex-info (str "Unknown monad command: " m) {:command m}))
       )))
 
 
@@ -512,7 +517,9 @@
          m-log []]
     (if-let [next-tid (first pre)]
       ;; run
-      (let [ts (get threads next-tid)
+      (let [ts (get threads next-tid ::undefined)
+            _ (when (= ts ::undefined)
+                (throw (ex-info "No thread state defined for thread" {:tid next-tid})))
 
             [code new-threads return-val]
             (enact next-tid (thread-state-m ts) log m-log threads)]
@@ -535,7 +542,9 @@
              new-threads
              (rest pre)
              (conj log next-tid)
-             (conj m-log (thread-state-m ts))))))
+             (conj m-log (thread-state-m ts))))
+
+          (throw (ex-info "Unknown code" {:value code}))))
       ;; else done
       [:new-prefixes
        (prefixes prefix threads m-log)]
