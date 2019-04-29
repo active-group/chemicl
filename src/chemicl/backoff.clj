@@ -11,7 +11,8 @@
       (recur (dec i) (* res base)))))
 
 (defn- maximum-for [counter]
-  (* 10 (pow 2 (min counter 14))))
+  ;; Note: return value are used as milliseconds:
+  (pow 2 (min counter 14)))
 
 (defn done [x]
   [:done x])
@@ -22,6 +23,17 @@
 (defn retry-reset []
   [:retry-reset])
 
+(defn- nano-sleep []
+  ;; these are all not much different. TODO: add/try a conc/yield maybe?
+  (java.util.concurrent.locks.LockSupport/parkNanos 1)
+  #_(Thread/yield)
+  #_(dotimes [n 10000] nil))
+
+(defn timeout-with-counter [counter]
+  (if (zero? counter)
+    (m/return (nano-sleep))
+    (conc/timeout (rand-int (maximum-for counter)))))
+
 (defmonadic with-exponential-backoff-counter [c m]
   [result m]
   (case (first result)
@@ -30,7 +42,7 @@
 
     :retry-backoff
     (m/monadic
-     (conc/timeout (rand-int (maximum-for c)))
+     (timeout-with-counter c)
      (with-exponential-backoff-counter (inc c) m))
 
     :retry-reset
@@ -44,5 +56,3 @@
   `(with-exponential-backoff
      (m/monadic ~@ms)))
 
-(defn timeout-with-counter [counter]
-  (conc/timeout (rand-int (maximum-for counter))))
