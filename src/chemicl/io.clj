@@ -92,7 +92,7 @@
 
 (defn readch [ch]
   (let [buf (new-byte-buffer 1024)
-        [ep-1 ep-2] (conc/run-here (chemicl.channels/new-channel))]
+        [ep-1 ep-2] @(conc/run (chemicl.channels/new-channel))]
     ;; kick off reader
     (.read ch buf 0 nil
            (reify java.nio.channels.CompletionHandler
