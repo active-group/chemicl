@@ -6,7 +6,8 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [active-clojure "0.23.0"]]
 
-  :profiles {:dev {:resource-paths ["resources-test"]}}
+  :profiles {:dev {:resource-paths ["resources-test"]
+                   :dependencies [[org.clojure/core.async "0.4.490"]]}}
 
   :test-selectors {:default (complement :slow)
                    :all (constantly true)}

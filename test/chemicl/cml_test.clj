@@ -1,5 +1,6 @@
 (ns chemicl.cml-test
   (:require [chemicl.cml :as cml]
+            [clojure.core.async :as async]
             [clojure.test :refer [deftest testing is]]))
 
 (def debug false)
@@ -146,7 +147,7 @@
   (is (= (cml/wrap (cml/always 42) inc)
          (cml/wrap (cml/always 42) inc))))
 
-(deftest performance-test
+(defn comm-performance-test [label run-for-sec channel send select-rcv-or-snd select-rcv2]
   (let [run-for-secs 20]
     (println)
     (let [start (delay (java.time.Instant/now))
@@ -160,7 +161,7 @@
                   ms_per_msg (if (zero? i)
                                "n/a"
                                (double (/ ms i)))]
-              (str msg_per_sec " messages per second, resp. " ms_per_msg " ms per message. ")))
+              (str label " " msg_per_sec " messages per second, resp. " ms_per_msg " ms per message. ")))
           
           print-throughput
           (fn [i]
@@ -168,20 +169,18 @@
                  (catch Exception e
                    (println "You silly:" e))))
 
-          stop-ch (cml/channel)
-          stop-ev (cml/receive stop-ch)
+          stop-ch (channel)
 
-          ch (cml/channel)
+          ch (channel)
           ;; writer thread
           writer (future
                    (loop [i 0]
-                     (when-not (cml/sync (cml/choose stop-ev
-                                                     (cml/send ch i)))
+                     (when-not (select-rcv-or-snd stop-ch
+                                                  ch i)
                        (recur (inc i)))))
           reader (future
                    (loop [i nil]
-                     (let [in (cml/sync (cml/choose stop-ev
-                                                    (cml/receive ch)))]
+                     (let [in (select-rcv2 stop-ch ch)]
                        (if-not (= true in)
                          (do
                            (when-not (or (nil? i) (= (inc i) in))
@@ -189,12 +188,37 @@
                            (if (zero? in) ;; first as a warmup
                              @start
                              #_(when (zero? (mod (dec in) 1000))
-                               (print-throughput in)))                         
+                                 (print-throughput in)))                         
                            (recur in))
                          i))))]
-      (cml/sync (cml/timeout (* 1000 run-for-secs)))
-      (cml/sync (cml/send stop-ch true))
-      (cml/sync (cml/send stop-ch true))
+      (Thread/sleep (* 1000 run-for-secs))
+      (send stop-ch true)
+      (send stop-ch true)
       @writer
       (let [total @reader]
-        (println "\r" (result @start total))))))
+        (println "\r" (result @start total)))))
+  )
+
+(deftest performance-test
+  (comm-performance-test "chemicl.cml" 10
+                         cml/channel
+                         (fn send [ch v]
+                           (cml/sync (cml/send ch v)))
+                         (fn select-rcv-or-snd [rcv-ch snd-ch v]
+                           (cml/sync (cml/choose (cml/receive rcv-ch)
+                                                 (cml/send snd-ch v))))
+                         (fn select-rcv2 [rcv-ch1 rcv-ch2]
+                           (cml/sync (cml/choose (cml/receive rcv-ch1)
+                                                 (cml/receive rcv-ch2))))))
+
+(deftest core-async-performance-test
+  (comm-performance-test "core.async" 10
+                         async/chan
+                         (fn send [ch v]
+                           (async/>!! ch v))
+                         (fn select-rcv-or-snd [rcv-ch snd-ch v]
+                           (async/alt!! rcv-ch ([v] v)
+                                        [[snd-ch v]] nil))
+                         (fn select-rcv2 [rcv-ch1 rcv-ch2]
+                           (first (async/alts!! [rcv-ch1 rcv-ch2])))))
+
