@@ -1,4 +1,5 @@
 (ns chemicl.io
+  "Experimental IO reagents."
   (:require
    [active.clojure.record :as acr]
    [chemicl.concurrency :as conc]

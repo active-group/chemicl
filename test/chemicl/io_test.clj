@@ -4,6 +4,7 @@
    [chemicl.reagents :as rea]
    [chemicl.concurrency :as conc]
    [chemicl.timeout :as timeout]
+   [clojure.java.io :as jio]
    [clojure.test :as t :refer [deftest testing is]]))
 
 
@@ -43,34 +44,30 @@
 
 
 (deftest read-file-t
-  (let [url "file:///Users/markusschlegel/foo.txt"
+  (let [url (str (jio/resource "foo.txt"))
         res (atom :nothing)]
 
     ;; run reagent
-    (conc/run
+    @(conc/run
       [result (rea/react! (io/read-file url) nil)]
       (let [_ (reset! res result)])
       (conc/exit))
-
-    (Thread/sleep 100)
 
     ;; assert something
     (is (= "hi wie geht\n" @res))
     ))
 
 (deftest choose-read-file-t
-  (let [url "file:///Users/markusschlegel/foo.txt"
+  (let [url (str (jio/resource "foo.txt"))
         res (atom :nothing)]
 
     ;; run reagent
-    (conc/run
+    @(conc/run
       [result (rea/react! (rea/choose
                            (io/read-file url)
                            (rea/return :too-late)) nil)]
       (let [_ (reset! res result)])
       (conc/exit))
-
-    (Thread/sleep 100)
 
     ;; assert something
     (is (= :too-late @res))
@@ -80,12 +77,12 @@
   `(fn [arg#]
      (->> arg# ~@forms)))
 
-(deftest readf-t
-  (let [url "file:///Users/markusschlegel/foo.txt"
+#_(deftest readf-t
+  (let [url (str (jio/resource "foo.txt"))
         res (atom :nothing)]
 
     ;; run reagent
-    (conc/run
+    @(conc/run
       [result
        (rea/react!
         (rea/>>>
@@ -97,8 +94,6 @@
 
       (let [_ (reset! res result)])
       (conc/exit))
-
-    (Thread/sleep 100)
 
     ;; assert something
     (is (= "hi wie geht\n" @res))
