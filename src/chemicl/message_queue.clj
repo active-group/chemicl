@@ -6,7 +6,7 @@
    [active.clojure.monad :as m]
    [chemicl.michael-scott-queue :as msq]))
 
-(def new msq/create)
+(def new-message-queue msq/create)
 (def push msq/push)
 (def clean msq/clean-until)
 (def cursor msq/cursor)

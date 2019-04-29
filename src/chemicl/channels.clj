@@ -14,8 +14,8 @@
    outgoing endpoint-outgoing])
 
 (defmonadic new-channel []
-  [l1 (mq/new)
-   l2 (mq/new)]
+  [l1 (mq/new-message-queue)
+   l2 (mq/new-message-queue)]
   (m/return
    [(make-endpoint l2 l1) 
     (make-endpoint l1 l2)])) 
