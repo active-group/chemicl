@@ -24,7 +24,7 @@
 
 (defonce ^:private executor (delay (thread-pool-executor)))
 
-(def ^:private debug true)
+(def ^:private debug false)
 
 (defn ^Runnable wrap [^Runnable r]
   (if debug
@@ -39,10 +39,10 @@
 (defn run
   "Runs Runnable r in a thread pool thread"
   [^Runnable r]
-  (.execute @executor (wrap r)))
+  (.execute ^java.util.concurrent.ExecutorService @executor ^Runnable (wrap r)))
 
 (defn run-after
   "Runs Runnable r in a thread pool thread after msec"
   [^long msec
    ^Runnable r]
-  (.schedule @executor (wrap r) msec java.util.concurrent.TimeUnit/MILLISECONDS))
+  (.schedule ^java.util.concurrent.ScheduledExecutorService @executor ^Runnable (wrap r) msec java.util.concurrent.TimeUnit/MILLISECONDS))
