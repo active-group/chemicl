@@ -7,18 +7,73 @@
   (:refer-clojure :exclude [read print]))
 
 (declare run-many-to-many)
-(declare make-fork-command)
-(declare make-call-cc)
-(declare make-throw)
-(declare make-exit-command)
-(declare make-new-ref-command)
-(declare make-read-command)
-(declare make-reset-command)
-(declare make-cas-command)
-(declare make-timeout-command)
-(declare make-get-current-task-command)
-(declare make-park-command)
-(declare make-unpark-command)
+
+;; --- Cont concurrency monad: commands ---------
+
+(acr/define-record-type ForkCommand
+  (make-fork-command m)
+  fork-command?
+  [m fork-command-monad])
+
+(acr/define-record-type CallCC
+  (make-call-cc f)
+  call-cc?
+  [f call-cc-function])
+
+(acr/define-record-type Throw
+  (make-throw k v)
+  throw?
+  [k throw-k
+   v throw-value])
+
+(acr/define-record-type ExitCommand
+  (make-exit-command)
+  exit-command?
+  [])
+
+(acr/define-record-type NewRefCommand
+  (make-new-ref-command init)
+  new-ref-command?
+  [init new-ref-command-init])
+
+(acr/define-record-type ReadCommand
+  (make-read-command ref)
+  read-command?
+  [ref read-command-ref])
+
+(acr/define-record-type ResetCommand
+  (make-reset-command ref nv)
+  reset-command?
+  [ref reset-command-ref
+   nv reset-command-new-value])
+
+(acr/define-record-type CASCommand
+  (make-cas-command ref ov nv)
+  cas-command?
+  [ref cas-command-ref
+   ov cas-command-old-value
+   nv cas-command-new-value])
+
+(acr/define-record-type TimeoutCommand
+  (make-timeout-command msec)
+  timeout-command?
+  [msec timeout-command-msec])
+
+(acr/define-record-type GetCurrentTaskCommand
+  (make-get-current-task-command)
+  get-current-task-command?
+  [])
+
+(acr/define-record-type ParkCommand
+  (make-park-command)
+  park-command?
+  [])
+
+(acr/define-record-type UnparkCommand
+  (make-unpark-command task value)
+  unpark-command?
+  [task unpark-command-task
+   value unpark-command-value])
 
 
 ;; --- API ---------
@@ -38,9 +93,10 @@
   "Divert execution to the given continuation"
   [k v] (make-throw k v))
 
-(defn exit
-  "Quit the current thread"
-  [] (make-exit-command))
+(let [v (make-exit-command)]
+  (defn exit
+    "Quit the current thread"
+    [] v))
 
 ;; The concurrency language is shared-memory-based.
 
@@ -72,13 +128,15 @@
 ;; and unparking scheme. When performance is paramount, you
 ;; should use `call-cc` and `throw` instead.
 
-(defn get-current-task
-  "Obtain the current task handle, which you can call `unpark` on"
-  [] (make-get-current-task-command))
+(let [v (make-get-current-task-command)]
+  (defn get-current-task
+    "Obtain the current task handle, which you can call `unpark` on"
+    [] v))
 
-(defn park
-  "Park the current thread"
-  [] (make-park-command))
+(let [v (make-park-command)]
+  (defn park
+    "Park the current thread"
+    [] v))
 
 (defn unpark
   "Unpark a given thread and optionally pass a value to it."
@@ -173,73 +231,6 @@
    (task-lock t)
    cont))
 
-
-;; --- Cont concurrency monad: commands ---------
-
-(acr/define-record-type ForkCommand
-  (make-fork-command m)
-  fork-command?
-  [m fork-command-monad])
-
-(acr/define-record-type CallCC
-  (make-call-cc f)
-  call-cc?
-  [f call-cc-function])
-
-(acr/define-record-type Throw
-  (make-throw k v)
-  throw?
-  [k throw-k
-   v throw-value])
-
-(acr/define-record-type ExitCommand
-  (make-exit-command)
-  exit-command?
-  [])
-
-(acr/define-record-type NewRefCommand
-  (make-new-ref-command init)
-  new-ref-command?
-  [init new-ref-command-init])
-
-(acr/define-record-type ReadCommand
-  (make-read-command ref)
-  read-command?
-  [ref read-command-ref])
-
-(acr/define-record-type ResetCommand
-  (make-reset-command ref nv)
-  reset-command?
-  [ref reset-command-ref
-   nv reset-command-new-value])
-
-(acr/define-record-type CASCommand
-  (make-cas-command ref ov nv)
-  cas-command?
-  [ref cas-command-ref
-   ov cas-command-old-value
-   nv cas-command-new-value])
-
-(acr/define-record-type TimeoutCommand
-  (make-timeout-command msec)
-  timeout-command?
-  [msec timeout-command-msec])
-
-(acr/define-record-type GetCurrentTaskCommand
-  (make-get-current-task-command)
-  get-current-task-command?
-  [])
-
-(acr/define-record-type ParkCommand
-  (make-park-command)
-  park-command?
-  [])
-
-(acr/define-record-type UnparkCommand
-  (make-unpark-command task value)
-  unpark-command?
-  [task unpark-command-task
-   value unpark-command-value])
 
 ;; Debugging only
 

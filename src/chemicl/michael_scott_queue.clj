@@ -47,6 +47,18 @@
 
 ;; push
 
+(def ^:private return-reset (m/return (backoff/retry-reset)))
+(def ^:private return-backoff (m/return (backoff/retry-backoff)))
+(def ^:private return-done (m/return (backoff/done nil)))
+
+(let [retry (constantly return-reset)]
+  (defn and-then-reset [m]
+    (m/free-bind m retry)))
+
+(let [done (constantly return-done)]
+  (defn and-then-done [m]
+    (m/free-bind m done)))
+
 (defmonadic push [q x]
   (backoff/with-exp-backoff
     ;; get tail node
@@ -57,13 +69,13 @@
 
     (if successor-node
       ;; true tail lags behind
-      (m/monadic
+      (->
        ;; catch up
        (conc/cas (ms-queue-tail q)
                  tail-node
                  successor-node)
        ;; and retry
-       (m/return (backoff/retry-reset)))
+       (and-then-reset))
       ;; found true tail
       (m/monadic
        ;; create new tail node
@@ -74,14 +86,14 @@
                        successor-node
                        new-tail-node)]
        (if succ
-         (m/monadic
+         (->
           ;; try to cas the tail pointer
           (conc/cas (ms-queue-tail q)
                     tail-node
                     new-tail-node)
-          (m/return (backoff/done nil)))
+          (and-then-done))
          ;; else retry
-         (m/return (backoff/retry-backoff))
+         return-backoff
          )))))
 
 ;; cursor
@@ -113,9 +125,9 @@
          (m/monadic
           [succ (conc/cas (ms-queue-head q) sentinel-node head-node)]
           (if succ
-            (m/return (backoff/retry-reset))
-            (m/return (backoff/retry-backoff))))
+            return-reset
+            return-backoff))
          ;; else done
-         (m/return (backoff/done nil))))
+         return-done))
       ;; else no nodes
-      (m/return (backoff/done nil)))))
+      return-done)))

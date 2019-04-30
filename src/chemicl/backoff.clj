@@ -17,11 +17,13 @@
 (defn done [x]
   [:done x])
 
-(defn retry-backoff []
-  [:retry-backoff])
+(let [v [:retry-backoff]]
+  (defn retry-backoff []
+    v))
 
-(defn retry-reset []
-  [:retry-reset])
+(let [v [:retry-reset]]
+  (defn retry-reset []
+    v))
 
 (defn- nano-sleep []
   ;; these are all not much different. TODO: add/try a conc/yield maybe?
