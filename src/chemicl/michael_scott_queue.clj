@@ -49,10 +49,6 @@
 
 (defmonadic push [q x]
   (backoff/with-exp-backoff
-    ;; create new tail node
-    [nilref (conc/new-ref nil)]
-    (let [new-tail-node (make-node x nilref)])
-    
     ;; get tail node
     [tail-node (conc/read (ms-queue-tail q))]
 
@@ -70,6 +66,10 @@
        (m/return (backoff/retry-reset)))
       ;; found true tail
       (m/monadic
+       ;; create new tail node
+       [nilref (conc/new-ref nil)]
+       (let [new-tail-node (make-node x nilref)])
+       
        [succ (conc/cas (node-next tail-node)
                        successor-node
                        new-tail-node)]
