@@ -3,12 +3,12 @@
 (defn rx-union [& rxs]
   (let [grxs (filter some? rxs)]
     {:tag ::reaction
-     :cases (apply concat (map :cases grxs))
-     :actions (apply concat (map :actions grxs))
+     :cases (mapcat :cases grxs)
+     :actions (mapcat :actions grxs)
      :live? (every? :live? grxs)}))
 
-(defn- rx-cases-order [[r _ _]]
-  (hash r))
+(defn- rx-cases-order [c]
+  (hash (first c)))
 
 (defn rx-cases [rx]
   (let [cases (:cases rx)]
