@@ -592,7 +592,7 @@
 
 (defmonadic with-offer [reagent a backoff-counter ctx]
   [oref (offers/new-offer)]
-  [res (try-react reagent a (rx-data/empty-rx) oref ctx)]
+  [res (try-react reagent a rx-data/empty-rx oref ctx)]
   (cond
     (= :block res)
     (m/monadic
@@ -610,7 +610,7 @@
     (m/return res)))
 
 #_(defmonadic without-offer [reagent a backoff-counter]
-  [res (try-react reagent a (rx-data/empty-rx) nil)]
+  [res (try-react reagent a rx-data/empty-rx nil)]
   (cond
     (= :block res)
     (m/monadic

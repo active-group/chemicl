@@ -13,7 +13,7 @@
 (defn just-value [x]
   (::value x))
 
-(defn nothing []
+(def nothing
   ::nothing)
 
 (defn nothing? [x]

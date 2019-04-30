@@ -7,9 +7,11 @@
      :actions (apply concat (map :actions grxs))
      :live? (every? :live? grxs)}))
 
+(defn- rx-cases-order [[r _ _]]
+  (hash r))
+
 (defn rx-cases [rx]
-  (sort-by (fn [[r _ _]]
-             (hash r))
+  (sort-by rx-cases-order
            (:cases rx)))
 
 (defn rx-actions [rx]
@@ -26,14 +28,14 @@
   [rx m]
   (update rx :actions conj m))
 
-(defn empty-rx []
+(def empty-rx
   {:tag ::reaction
    :cases []
    :actions []
    :live? true})
 
-(defn failing-rx []
-  (assoc (empty-rx) :live? false))
+(def failing-rx
+  (assoc empty-rx :live? false))
 
 
 ;; Stringify

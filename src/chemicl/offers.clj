@@ -63,7 +63,7 @@
       (m/return (backoff/done (maybe/just (offer-answer o))))
 
       (rescinded? o)
-      (m/return (backoff/done (maybe/nothing)))
+      (m/return (backoff/done maybe/nothing))
 
       (waiting? o)
       (m/monadic
@@ -72,7 +72,7 @@
          ;; unpark
          (m/monadic
           (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)
-          (m/return (backoff/done (maybe/nothing))))
+          (m/return (backoff/done maybe/nothing)))
          ;; else retry
          (m/return (backoff/retry-backoff))))
 
@@ -80,7 +80,7 @@
       (m/monadic
        [succ (kcas/cas oref o rescinded-state)]
        (if succ
-         (m/return (backoff/done (maybe/nothing)))
+         (m/return (backoff/done maybe/nothing))
          (m/return (backoff/retry-backoff))))
       )))
 
@@ -104,22 +104,22 @@
   (if succ
     (conc/park)
     ;; else continue
-    (m/return (maybe/nothing))))
+    (m/return maybe/nothing)))
 
 (defmonadic complete [oref v] ;; v final result, returns a reaction
   [o (kcas/read oref)]
   (m/return
    (cond
      (waiting? o)
-     (-> (rx-data/empty-rx)
+     (-> rx-data/empty-rx
          (rx-data/add-cas [oref o [:completed v]])
          (rx-data/add-action
           (conc/unpark (offer-waiter o) nil)))
 
      (empty? o) ;; this should not happen (?)
-     (-> (rx-data/empty-rx)
+     (-> rx-data/empty-rx
          (rx-data/add-cas [oref o [:completed v]]))
      
 
      :else
-     (rx-data/failing-rx))))
+     rx-data/failing-rx)))

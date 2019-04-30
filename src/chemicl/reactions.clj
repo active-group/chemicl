@@ -14,7 +14,7 @@
             (empty? cases)
             (m/return true)
 
-            (= 1 (count cases))
+            (empty? (rest cases))
             (let [[r ov nv] (first cases)]
               (conc/cas r ov nv))
 

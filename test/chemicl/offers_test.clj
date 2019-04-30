@@ -39,8 +39,8 @@
 
      ;; check
      [r1 (conc/read res-1)]
-     (test-runner/is= r1 (nothing) "rescind result must be nothing")
-     (test-runner/is= r2 (nothing) "rescind result must be nothing")
+     (test-runner/is= r1 nothing "rescind result must be nothing")
+     (test-runner/is= r2 nothing "rescind result must be nothing")
 
      ;; FIXME: this is based on assumption about offer internals
      [o (conc/read oref)]
@@ -81,8 +81,8 @@
      ;; complete
      [cres (o/complete oref :schwenker)]
 
-     (test-runner/is= (nothing) rres)
-     (test-runner/is= (rx-data/failing-rx) cres)
+     (test-runner/is= nothing rres)
+     (test-runner/is= rx-data/failing-rx cres)
      )))
 
 (deftest rescind-complete-2-t
@@ -140,7 +140,7 @@
 
      ;; check
      [rres (conc/read rescinder-res)]
-     (test-runner/is (=> (not succ) (= (nothing) rres)))
+     (test-runner/is (=> (not succ) (= nothing rres)))
      (test-runner/is (=> succ (= rres (just :schwenker))))
      )))
 
