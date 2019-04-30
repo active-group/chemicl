@@ -1,5 +1,6 @@
 (ns chemicl.cml-test
   (:require [chemicl.cml :as cml]
+            [active.clojure.monad :as monad]
             [clojure.core.async :as async]
             [clojure.test :refer [deftest testing is]]))
 
@@ -147,56 +148,55 @@
   (is (= (cml/wrap (cml/always 42) inc)
          (cml/wrap (cml/always 42) inc))))
 
-(defn comm-performance-test [label run-for-sec channel send select-rcv-or-snd select-rcv2]
-  (let [run-for-secs 20]
-    (println)
-    (let [start (delay (java.time.Instant/now))
+(defn comm-performance-test [label run-for-secs channel send select-rcv-or-snd select-rcv2]
+  (println)
+  (let [start (delay (java.time.Instant/now))
 
-          result
-          (fn [start i]
-            (let [ms (.until start (java.time.Instant/now) java.time.temporal.ChronoUnit/MILLIS)
-                  msg_per_sec (if (zero? ms)
-                                "n/a"
-                                (long (/ (double i) (/ (double ms) 1000))))
-                  ms_per_msg (if (zero? i)
-                               "n/a"
-                               (double (/ ms i)))]
-              (str label " " msg_per_sec " messages per second, resp. " ms_per_msg " ms per message. ")))
+        result
+        (fn [start i]
+          (let [ms (.until start (java.time.Instant/now) java.time.temporal.ChronoUnit/MILLIS)
+                msg_per_sec (if (zero? ms)
+                              "n/a"
+                              (long (/ (double i) (/ (double ms) 1000))))
+                ms_per_msg (if (zero? i)
+                             "n/a"
+                             (double (/ ms i)))]
+            (str label " " msg_per_sec " messages per second, resp. " ms_per_msg " ms per message. ")))
           
-          print-throughput
-          (fn [i]
-            (try (print "\r" (result @start i))
-                 (catch Exception e
-                   (println "You silly:" e))))
+        print-throughput
+        (fn [i]
+          (try (print "\r" (result @start i))
+               (catch Exception e
+                 (println "You silly:" e))))
 
-          stop-ch (channel)
+        stop-ch (channel)
 
-          ch (channel)
-          ;; writer thread
-          writer (future
-                   (loop [i 0]
-                     (when-not (select-rcv-or-snd stop-ch
-                                                  ch i)
-                       (recur (inc i)))))
-          reader (future
-                   (loop [i nil]
-                     (let [in (select-rcv2 stop-ch ch)]
-                       (if-not (= true in)
-                         (do
-                           (when-not (or (nil? i) (= (inc i) in))
-                             (println "***** INVARIANT VIOLATION: Missed message *****"))
-                           (if (zero? in) ;; first as a warmup
-                             @start
-                             #_(when (zero? (mod (dec in) 1000))
-                                 (print-throughput in)))                         
-                           (recur in))
-                         i))))]
-      (Thread/sleep (* 1000 run-for-secs))
-      (send stop-ch true)
-      (send stop-ch true)
-      @writer
-      (let [total @reader]
-        (println "\r" (result @start total)))))
+        ch (channel)
+        ;; writer thread
+        writer (future
+                 (loop [i 0]
+                   (when-not (select-rcv-or-snd stop-ch
+                                                ch i)
+                     (recur (inc i)))))
+        reader (future
+                 (loop [i nil]
+                   (let [in (select-rcv2 stop-ch ch)]
+                     (if-not (= true in)
+                       (do
+                         (when-not (or (nil? i) (= (inc i) in))
+                           (println "***** INVARIANT VIOLATION: Missed message *****"))
+                         (if (zero? in) ;; first as a warmup
+                           @start
+                           #_(when (zero? (mod (dec in) 1000))
+                               (print-throughput in)))                         
+                         (recur in))
+                       i))))]
+    (Thread/sleep (* 1000 run-for-secs))
+    (send stop-ch true)
+    (send stop-ch true)
+    @writer
+    (let [total @reader]
+      (println "\r" (result @start total))))
   )
 
 (deftest performance-test
