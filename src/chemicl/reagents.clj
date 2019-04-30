@@ -422,10 +422,9 @@
     (m/monadic
      (let [[nv retv] res])
      (try-react k retv (-> rx
-                           (rx-data/add-cas
-                            [(refs/ref-data-ref r) ov nv])
-                           (rx-data/add-action
-                            (refs/rescind-offers r))) oref ctx))
+                           (rx-data/add-cas+action [(refs/ref-data-ref r) ov nv]
+                                                   (refs/rescind-offers r)))
+                oref ctx))
     ;; else block
     (m/return :block)))
 

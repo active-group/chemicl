@@ -111,15 +111,11 @@
   (m/return
    (cond
      (waiting? o)
-     (-> rx-data/empty-rx
-         (rx-data/add-cas [oref o [:completed v]])
-         (rx-data/add-action
-          (conc/unpark (offer-waiter o) nil)))
+     (rx-data/cas+action [oref o [:completed v]]
+                         (conc/unpark (offer-waiter o) nil))
 
      (empty? o) ;; this should not happen (?)
-     (-> rx-data/empty-rx
-         (rx-data/add-cas [oref o [:completed v]]))
-     
+     (rx-data/cas [oref o [:completed v]])
 
      :else
      rx-data/failing-rx)))

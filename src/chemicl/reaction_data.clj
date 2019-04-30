@@ -28,6 +28,13 @@
   [rx m]
   (update rx :actions conj m))
 
+(defn add-cas+action [rx cas action]
+  ;; = (add-action (add-cas rx cas) action)
+  {:tag ::reaction
+   :cases (conj (:cases rx) cas)
+   :actions (conj (:actions rx) action)
+   :live? (:live? rx)})
+
 (def empty-rx
   {:tag ::reaction
    :cases []
@@ -37,6 +44,19 @@
 (def failing-rx
   (assoc empty-rx :live? false))
 
+(defn cas [cas]
+  ;; = (add-cas empty-rx cas)
+  {:tag ::reaction
+   :cases [cas]
+   :actions []
+   :live? true})
+
+(defn cas+action [cas action]
+  ;; = (add-action (add-cas empty-rx cas) action)
+  {:tag ::reaction
+   :cases [cas]
+   :actions [action]
+   :live? true})
 
 ;; Stringify
 
