@@ -9,7 +9,8 @@
    [chemicl.maybe :as maybe]
    [active.clojure.record :as acr]
    [active.clojure.lens :as lens]
-   [active.clojure.monad :as m]))
+   [active.clojure.monad :as m])
+  (:refer-clojure :exclude [empty?]))
 
 
 ;; --- Offers ---------

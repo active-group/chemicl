@@ -3,7 +3,8 @@
    [chemicl.exec :as x]
    [active.clojure.record :as acr]
    [active.clojure.monad :as m]
-   [chemicl.monad :refer [defmonadic whenm]]))
+   [chemicl.monad :refer [defmonadic whenm]])
+  (:refer-clojure :exclude [read print]))
 
 (declare run-many-to-many)
 (declare make-fork-command)

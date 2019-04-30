@@ -13,7 +13,8 @@
    [chemicl.backoff :as backoff]
    [chemicl.concurrency :as conc]
    [chemicl.monad :as cm :refer [defmonadic whenm]]
-   [chemicl.maybe :as maybe :refer [maybe-case just nothing]]))
+   [chemicl.maybe :as maybe :refer [maybe-case just nothing]])
+  (:refer-clojure :exclude [read send nth first]))
 
 
 ;; -----------------------------------------------

@@ -5,7 +5,8 @@
    [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.kcas :as kcas]
    [active.clojure.record :as acr]
-   [active.clojure.monad :as m]))
+   [active.clojure.monad :as m])
+  (:refer-clojure :exclude [read]))
 
 
 (acr/define-record-type Ref

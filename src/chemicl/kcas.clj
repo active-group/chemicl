@@ -3,7 +3,8 @@
    [chemicl.monad :as cm :refer [defmonadic whenm]]
    [chemicl.concurrency :as conc]
    [active.clojure.monad :as m]
-   [chemicl.backoff :as backoff]))
+   [chemicl.backoff :as backoff])
+  (:refer-clojure :exclude [read]))
 
 (defn- make-sentinel [rn]
   [::sentinel rn])
