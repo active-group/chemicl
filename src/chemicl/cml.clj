@@ -227,28 +227,65 @@
                           []
                           aborts-map)))
 
+(defn- split-reas-aborts [reas-aborts]
+  (loop [aborts-map (transient {})
+         reas (transient [])
+         reas-aborts reas-aborts
+         i 0]
+    (if (empty? reas-aborts)
+      [(persistent! reas)
+       (persistent! aborts-map)]
+      (let [[rea ab] (first reas-aborts)]
+        (recur (if (some? ab)
+                 (assoc! aborts-map i ab)
+                 aborts-map)
+               (conj! reas rea)
+               (rest reas-aborts)
+               (inc i))))))
+
 (defrecord Choose [evs]
   Event (resolve [_]
           (monad/monadic
            [reas-aborts (monad/sequ (map resolve evs))]
            (monad/return
-            (let [aborts-map (into {} (map-indexed vector
-                                                   (map second reas-aborts)))]
-              [(apply r/choose (map-indexed (fn [idx rea]
-                                              (r/>>> rea (r/post-commit (fn cho-post-abort [_]
-                                                                          (abort-others aborts-map idx)))))
-                                            (map first reas-aborts)))
+            (let [[reas aborts-map] (split-reas-aborts reas-aborts)]
+              [(apply r/choose (if (empty? aborts-map)
+                                 reas
+                                 (map-indexed (fn [idx rea]
+                                                (r/>>> rea (r/post-commit (fn cho-post-abort [_]
+                                                                            (abort-others aborts-map idx)))))
+                                              reas)))
                ;; abort commit => abort all:
                (when-not (empty? aborts-map)
                  (fn cho-abort-all []
                    (abort-others aborts-map -1)))])))))
 
+(defrecord ^:private Choose2 [ev1 ev2]
+  Event (resolve [_]
+          (monad/monadic
+           [[rea1 ab1] (resolve ev1)]
+           [[rea2 ab2] (resolve ev2)]
+           (monad/return
+            [(r/choose (if (some? ab2)
+                         (r/>>> rea1 (r/post-commit (fn [_] (ab2))))
+                         rea1)
+                       (if (some? ab1)
+                         (r/>>> rea2 (r/post-commit (fn [_] (ab1))))
+                         rea2))
+             (when (or ab1 ab2)
+               (fn []
+                 (monad/sequ_ [(when ab1 (ab1) (monad/return))
+                               (when ab2 (ab2) (monad/return))])))]))))
 
 (defn choose
   "Returns an event with will synchronize on one of the given events non-deterministically."
   [& evs]
   (assert (every? event? evs) (vec (remove event? evs)))
-  (Choose. evs))
+  (case (count evs)
+    0 never
+    1 (first evs)
+    2 (Choose2. (first evs) (second evs))
+    (Choose. evs)))
 
 ;; synchronization
 
