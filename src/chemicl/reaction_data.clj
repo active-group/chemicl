@@ -11,8 +11,11 @@
   (hash r))
 
 (defn rx-cases [rx]
-  (sort-by rx-cases-order
-           (:cases rx)))
+  (let [cases (:cases rx)]
+    (cond
+      (empty? cases) cases
+      (empty? (rest cases)) cases
+      :else (sort-by rx-cases-order cases))))
 
 (defn rx-actions [rx]
   (:actions rx))
