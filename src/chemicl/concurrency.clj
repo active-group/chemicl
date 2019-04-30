@@ -160,6 +160,9 @@
 (defn new-task! []
   (make-task (new-task-lock!) (promise)))
 
+(defn- new-detached-task! []
+  (make-task (new-task-lock!) nil))
+
 (defn signal-task! [t v]
   (signal-on-task-lock!
    (task-lock t) v))
@@ -398,7 +401,7 @@
 
       (fork-command? m)
       ;; Run the forked task on the same thread but with a different task lock
-      (recur (fork-command-monad m) (new-task!))
+      (recur (fork-command-monad m) (new-detached-task!))
 
       (get-current-task-command? m)
       ;; what do you want to do with it mate?
@@ -433,66 +436,69 @@
 
 (declare run-many-to-many-after)
 
+(defn- run-nm-0 [m task runner]
+  ;; Note: this should loop to continue with the same tasks. Other
+  ;; tasks should be handed to the thread-pool via
+  ;; run-many-to-many.
+  (loop [m m]
+    (let [res (run-cont m task)]
+      (cond
+
+        ;; PARKING
+
+        (park-status? res)
+        (when-let [mm (block-task!
+                       task
+                       (park-status-continuation res))]
+          (recur mm))
+
+        (unpark-status? res)
+        (let [cont (unpark-status-continuation res)
+              utask (unpark-status-unpark-task res)
+              uvalue (unpark-status-value res)]
+          ;; Unpark the parked task on a new thread
+          (when-let [mm (signal-task! utask uvalue)]
+            (run-many-to-many mm utask))
+
+          ;; Continue the unparking task on this thread
+          (when cont
+            (recur (cont true))))
+
+
+        ;; FORKING
+
+        (fork-status? res)
+        (let [cont (fork-status-continuation res)
+              fm (fork-status-monad res)
+              new-task (new-detached-task!)]
+          ;; Run the forked task on a new thread
+          (run-many-to-many fm new-task)
+
+          ;; Continue the parent task on this thread
+          (recur (cont new-task)))
+
+
+        ;; TIMEOUT
+
+        (timeout-status? res)
+        (let [cont (timeout-status-continuation res)
+              msec (timeout-status-timeout res)]
+          (run-many-to-many-after (cont nil) task msec))
+
+
+        ;; QUITTING
+
+        (exit-status? res)
+        (when-let [p (task-return-value-promise task)]
+          (deliver p (exit-status-value res)))
+
+        :else
+        (throw (ex-info (str "Unknown exit status " res) {:status res}))))))
+
 (defn- run-mn [m task runner]
   (runner
    (fn []
-     ;; Note: this should loop to continue with the same tasks. Other
-     ;; tasks should be handed to the thread-pool via
-     ;; run-many-to-many.
-     (loop [m m]
-       (let [res (run-cont m task)]
-         (cond
-
-           ;; PARKING
-
-           (park-status? res)
-           (when-let [mm (block-task!
-                          task
-                          (park-status-continuation res))]
-             (recur mm))
-
-           (unpark-status? res)
-           (let [cont (unpark-status-continuation res)
-                 utask (unpark-status-unpark-task res)
-                 uvalue (unpark-status-value res)]
-             ;; Unpark the parked task on a new thread
-             (when-let [mm (signal-task! utask uvalue)]
-               (run-many-to-many mm utask))
-
-             ;; Continue the unparking task on this thread
-             (when cont
-               (recur (cont true))))
-
-
-           ;; FORKING
-
-           (fork-status? res)
-           (let [cont (fork-status-continuation res)
-                 fm (fork-status-monad res)
-                 new-task (new-task!)]
-             ;; Run the forked task on a new thread
-             (run-many-to-many fm new-task)
-
-             ;; Continue the parent task on this thread
-             (recur (cont new-task)))
-
-
-           ;; TIMEOUT
-
-           (timeout-status? res)
-           (let [cont (timeout-status-continuation res)
-                 msec (timeout-status-timeout res)]
-             (run-many-to-many-after (cont nil) task msec))
-
-
-           ;; QUITTING
-
-           (exit-status? res)
-           (deliver (task-return-value-promise task)
-                    (exit-status-value res))
-
-           :else
-           (throw (ex-info (str "Unknown exit status " res) {:status res})))))))
+     (run-nm-0 m task runner)))
 
   (task-return-value-promise task))
 
