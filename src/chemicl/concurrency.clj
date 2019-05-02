@@ -171,7 +171,7 @@
 
 (defn- block-on-task-lock!
   "Block on lock until a permit is available.
-  If it is immediately, returns `(cont nil)`, or nil otherwise."
+  Returns `cont` if it is unblocked immediately, or nil otherwise."
   [lock cont]
   (let [ref (task-lock-state-ref lock)]
     (loop []
@@ -182,7 +182,7 @@
                ref 
                state
                (assoc state :permit? false))
-            (cont nil)
+            cont
             (recur))
           ;; No permit -> enter cont as continuation
           (if (compare-and-set!
@@ -202,7 +202,7 @@
           ;; blocked continuation found -> remove it and return it
           (if (compare-and-set! ref state {:permit? false
                                            :continuation nil})
-            (continuation nil)
+            continuation
             (recur))
           ;; no blocked continuation found -> leave a permit
           (if (compare-and-set! ref state {:permit? true
@@ -439,21 +439,22 @@
         ;; PARKING
 
         (park-status? res)
-        (when-let [mm (block-task!
-                       task
-                       (park-status-continuation res))]
-          (recur mm))
+        (when-let [cont (block-task!
+                         task
+                         (park-status-continuation res))]
+          (recur (cont nil)))
 
         (unpark-status? res)
         (let [cont (unpark-status-continuation res)
               utask (unpark-status-unpark-task res)]
           ;; Unpark the parked task on a new thread
-          (when-let [mm (signal-task! utask)]
-            (run-many-to-many mm utask))
+          (when-let [cont (signal-task! utask)]
+            ;; Note: this continues the pure part of cont on this thread.. maybe that's not good?
+            (run-many-to-many (cont nil) utask))
 
           ;; Continue the unparking task on this thread
           (when cont
-            (recur (cont true))))
+            (recur (cont nil))))
 
 
         ;; FORKING
