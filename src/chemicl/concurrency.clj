@@ -70,10 +70,9 @@
   [])
 
 (acr/define-record-type UnparkCommand
-  (make-unpark-command task value)
+  (make-unpark-command task)
   unpark-command?
-  [task unpark-command-task
-   value unpark-command-value])
+  [task unpark-command-task])
 
 
 ;; --- API ---------
@@ -141,12 +140,12 @@
 
 (let [v (make-park-command)]
   (defn park
-    "Park the current thread"
+    "Park the current thread, returning nil when it is unparked."
     [] v))
 
 (defn unpark
-  "Unpark a given thread and optionally pass a value to it."
-  [task value] (make-unpark-command task value))
+  "Unpark a given thread, returning nil."
+  [task] (make-unpark-command task))
 
 ;; Run the monadic program on a fixed size thread pool with `run`
 
@@ -172,18 +171,18 @@
 
 (defn- block-on-task-lock!
   "Block on lock until a permit is available.
-  Returns a monad by applying cont to a value delivered by the signaller, or nil."
+  If it is immediately, returns `(cont nil)`, or nil otherwise."
   [lock cont]
   (let [ref (task-lock-state-ref lock)]
     (loop []
-      (let [{:keys [permit? value] :as state} @ref]
+      (let [{:keys [permit?] :as state} @ref]
         (if permit?
           ;; Lock has been unlocked, we are allowed to proceed by consuming the permit
           (if (compare-and-set!
                ref 
                state
                (assoc state :permit? false))
-            (cont value) ;; deliver value
+            (cont nil)
             (recur))
           ;; No permit -> enter cont as continuation
           (if (compare-and-set!
@@ -194,22 +193,20 @@
             (recur)))))))
 
 (defn- signal-on-task-lock!
-  "Signal and deliver a value. Returns a monad value, or nil."
-  [lock v]
+  "Signal a blocked task. Returns the monadic continuation if there is one, or nil otherwise."
+  [lock]
   (let [ref (task-lock-state-ref lock)]
     (loop []
       (let [{:keys [continuation] :as state} @ref]
         (if continuation
           ;; blocked continuation found -> remove it and return it
           (if (compare-and-set! ref state {:permit? false
-                                           :continuation nil
-                                           :value nil})
-            (continuation v)
+                                           :continuation nil})
+            (continuation nil)
             (recur))
           ;; no blocked continuation found -> leave a permit
           (if (compare-and-set! ref state {:permit? true
-                                           :continuation nil
-                                           :value v})
+                                           :continuation nil})
             nil
             (recur)))))))
 
@@ -228,9 +225,9 @@
 (defn- new-detached-task! []
   (make-task (new-task-lock!) nil))
 
-(defn- signal-task! [t v]
+(defn- signal-task! [t]
   (signal-on-task-lock!
-   (task-lock t) v))
+   (task-lock t)))
 
 (defn- block-task! [t cont]
   (block-on-task-lock!
@@ -256,11 +253,10 @@
   [c park-status-continuation])
 
 (acr/define-record-type ^:private UnparkStatus
-  (make-unpark-status c unpark-task value)
+  (make-unpark-status c unpark-task)
   unpark-status?
   [c unpark-status-continuation
-   unpark-task unpark-status-unpark-task
-   value unpark-status-value])
+   unpark-task unpark-status-unpark-task])
 
 (acr/define-record-type ^:private TimeoutStatus
   (make-timeout-status c timeout)
@@ -337,8 +333,7 @@
 
           (unpark-command? m1)
           (make-unpark-status
-           c (unpark-command-task m1)
-           (unpark-command-value m1))
+           c (unpark-command-task m1))
 
           (fork-command? m1)
           (make-fork-status c (fork-command-monad m1))
@@ -394,8 +389,7 @@
       ;; beware: continuation is nil, which needs to be handled in outer runner
       (make-unpark-status
        nil
-       (unpark-command-task m)
-       (unpark-command-value m))
+       (unpark-command-task m))
 
       (fork-command? m)
       ;; Run the forked task on the same thread but with a different task lock
@@ -452,10 +446,9 @@
 
         (unpark-status? res)
         (let [cont (unpark-status-continuation res)
-              utask (unpark-status-unpark-task res)
-              uvalue (unpark-status-value res)]
+              utask (unpark-status-unpark-task res)]
           ;; Unpark the parked task on a new thread
-          (when-let [mm (signal-task! utask uvalue)]
+          (when-let [mm (signal-task! utask)]
             (run-many-to-many mm utask))
 
           ;; Continue the unparking task on this thread

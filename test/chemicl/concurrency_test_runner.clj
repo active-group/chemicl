@@ -207,8 +207,7 @@
              nil])
 
           (conc/unpark-command? m1)
-          (let [otid (conc/unpark-command-task m1)
-                v (conc/unpark-command-value m1)]
+          (let [otid (conc/unpark-command-task m1)]
             #_(println "UNPARKING")
             #_(println (pr-str threads))
             #_(println (pr-str (-> threads
@@ -315,8 +314,7 @@
        nil]
 
       (conc/unpark-command? m)
-      (let [otid (conc/unpark-command-task m)
-            v (conc/unpark-command-value m)]
+      (let [otid (conc/unpark-command-task m)]
         #_(println "UNPARKING")
         #_(println (pr-str threads))
         #_(println (pr-str (-> threads

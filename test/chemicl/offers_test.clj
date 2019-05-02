@@ -27,7 +27,7 @@
 
        ;; reset (1)
        (conc/reset res-1 res)
-       (conc/unpark parent nil)))
+       (conc/unpark parent)))
 
 
      (test-runner/mark)
@@ -122,7 +122,7 @@
        (test-runner/unmark)
 
        (conc/reset rescinder-res res)
-       (conc/unpark parent nil)
+       (conc/unpark parent)
        ))
 
      (test-runner/mark)
@@ -169,7 +169,7 @@
        (test-runner/unmark)
 
        (conc/reset done-ref true)
-       (conc/unpark parent nil)
+       (conc/unpark parent)
        ))
 
      (test-runner/mark)

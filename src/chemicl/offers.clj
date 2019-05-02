@@ -72,7 +72,7 @@
        (if succ
          ;; unpark
          (m/monadic
-          (conc/unpark (offer-waiter o) :continue-after-rescinded-offer)
+          (conc/unpark (offer-waiter o))
           (m/return (backoff/done maybe/nothing)))
          ;; else retry
          (m/return (backoff/retry-backoff))))
@@ -113,7 +113,7 @@
    (cond
      (waiting? o)
      (rx-data/cas+action [oref o [:completed v]]
-                         (conc/unpark (offer-waiter o) nil))
+                         (conc/unpark (offer-waiter o)))
 
      (empty? o) ;; this should not happen (?)
      (rx-data/cas [oref o [:completed v]])

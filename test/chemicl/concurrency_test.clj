@@ -33,7 +33,7 @@
     (letfn [(mate [i p]
               (mdo
                (if (> i n)
-                 (conc/unpark p nil)
+                 (conc/unpark p)
                  (conc/fork
                   (mate (inc i) p))
                  )))]
@@ -68,7 +68,7 @@
     (letfn [(mate [i p r]
               (m/monadic
                (if (> i n)
-                 (conc/unpark p nil)
+                 (conc/unpark p)
                  (m/monadic
                   [succ (conc/cas r i (inc i))]
                   (mate (inc i) p r))

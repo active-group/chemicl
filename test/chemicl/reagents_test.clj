@@ -92,7 +92,7 @@
       (test-runner/unmark)
 
       (conc/reset res-1 res)
-      (conc/unpark parent nil)
+      (conc/unpark parent)
       ))
 
     ;; swapper 2
@@ -130,7 +130,7 @@
 
         (conc/reset res-1-1 r1)
         (conc/reset res-1-2 r2)
-        (conc/unpark parent nil)
+        (conc/unpark parent)
         ))
 
       ;; swapper 2
@@ -172,7 +172,7 @@
         (test-runner/unmark)
 
         (conc/reset res-1 res)
-        (conc/unpark parent nil)
+        (conc/unpark parent)
         ))
 
       ;; swapper 2
@@ -184,7 +184,7 @@
         (test-runner/unmark)
 
         (conc/reset res-2 res)
-        (conc/unpark parent nil)
+        (conc/unpark parent)
         ))
 
       ;; swapper on dual endpoint
@@ -229,7 +229,7 @@
       (test-runner/unmark)
 
       (conc/reset res-1 res)
-      (conc/unpark parent nil)))
+      (conc/unpark parent)))
 
     ;; swap-then-upd 2
     (test-runner/mark)
@@ -378,7 +378,7 @@
         (test-runner/unmark)
 
         (conc/reset blocker-res res)
-        (conc/unpark parent nil)
+        (conc/unpark parent)
         ))
 
       ;; run other-upd

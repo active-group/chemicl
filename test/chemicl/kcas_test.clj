@@ -133,7 +133,7 @@
       [succ (kcas/kcas cs-1)]
       (test-runner/unmark)
       (conc/reset succ-1 succ)
-      (conc/unpark parent nil)
+      (conc/unpark parent)
       ))
 
     ;; two
