@@ -81,9 +81,15 @@
 ;; This namespace provides a simple language for multithreaded programming.
 ;; Programs are monadic. You can use the usual active.clojure.monad tools.
 
-(defn fork
-  "Run a monadic program asynchronously"
-  [m] (make-fork-command m))
+(defn fork-f
+  "Run the monadic program returned by `(f & args)` asynchronously on a new thread."
+  ([thunk] (make-fork-command (m/free-bind (m/return nil) (fn [_] (thunk)))))
+  ([f arg] (make-fork-command (m/free-bind arg f)))
+  ([f a1 a2 & args] (make-fork-command (m/free-bind (m/return nil) (fn [_] (apply f a1 a2 args))))))
+
+(defmacro fork [m]
+  "Run the monadic program `m` asynchronously on a new thread."
+  `(fork-f (fn [] ~m)))
 
 (defn call-cc
   "Call a function with the current continuation as an argument"

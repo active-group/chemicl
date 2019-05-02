@@ -70,7 +70,7 @@
   Event (resolve [_]
           (monad/monadic
            [[reagent a] (resolve ev)]
-           (let [ab (fn [] ;; TODO fork should be this.
+           (let [ab (fn []
                       (c/fork (apply f args)))])
            (monad/return [reagent (comp-abort a ab)]))))
 
