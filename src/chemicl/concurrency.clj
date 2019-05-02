@@ -162,21 +162,21 @@
 
 ;; --- Task locks ----------
 
-(acr/define-record-type TaskLock
+(acr/define-record-type ^:private TaskLock
   (make-task-lock s)
   task-lock?
   [s task-lock-state-ref])
 
-(defn new-task-lock! []
+(defn- new-task-lock! []
   (make-task-lock (atom nil)))
 
-(defn block-on-task-lock!
+(defn- block-on-task-lock!
   "Block on lock until a permit is available.
-  Returns a monad by applying cont to a value delivered by the signaller."
+  Returns a monad by applying cont to a value delivered by the signaller, or nil."
   [lock cont]
   (let [ref (task-lock-state-ref lock)]
     (loop []
-      (let [{:keys [permit? continuation value] :as state} @ref]
+      (let [{:keys [permit? value] :as state} @ref]
         (if permit?
           ;; Lock has been unlocked, we are allowed to proceed by consuming the permit
           (if (compare-and-set!
@@ -193,12 +193,12 @@
             nil
             (recur)))))))
 
-(defn signal-on-task-lock!
-  "Signal and deliver a value. Returns a monad value."
+(defn- signal-on-task-lock!
+  "Signal and deliver a value. Returns a monad value, or nil."
   [lock v]
   (let [ref (task-lock-state-ref lock)]
     (loop []
-      (let [{:keys [permit? continuation value] :as state} @ref]
+      (let [{:keys [continuation] :as state} @ref]
         (if continuation
           ;; blocked continuation found -> remove it and return it
           (if (compare-and-set! ref state {:permit? false
@@ -228,11 +228,11 @@
 (defn- new-detached-task! []
   (make-task (new-task-lock!) nil))
 
-(defn signal-task! [t v]
+(defn- signal-task! [t v]
   (signal-on-task-lock!
    (task-lock t) v))
 
-(defn block-task! [t cont]
+(defn- block-task! [t cont]
   (block-on-task-lock!
    (task-lock t)
    cont))
@@ -250,31 +250,31 @@
 
 ;; --- Cont concurrency monad: status return values ---------
 
-(acr/define-record-type ParkStatus
+(acr/define-record-type ^:private ParkStatus
   (make-park-status c)
   park-status?
   [c park-status-continuation])
 
-(acr/define-record-type UnparkStatus
+(acr/define-record-type ^:private UnparkStatus
   (make-unpark-status c unpark-task value)
   unpark-status?
   [c unpark-status-continuation
    unpark-task unpark-status-unpark-task
    value unpark-status-value])
 
-(acr/define-record-type TimeoutStatus
+(acr/define-record-type ^:private TimeoutStatus
   (make-timeout-status c timeout)
   timeout-status?
   [c timeout-status-continuation
    timeout timeout-status-timeout])
 
-(acr/define-record-type ForkStatus
+(acr/define-record-type ^:private ForkStatus
   (make-fork-status c m)
   fork-status?
   [c fork-status-continuation
    m fork-status-monad])
 
-(acr/define-record-type ExitStatus
+(acr/define-record-type ^:private ExitStatus
   (make-exit-status v)
   exit-status?
   [v exit-status-value])
@@ -282,7 +282,7 @@
 
 ;; --- (Inner) monad runner ---------
 
-(defn safe-println [& more]
+(defn- safe-println [& more]
   (.write *out* (str (clojure.string/join " " more) "\n")))
 
 (defn- run-cont [m task]
