@@ -848,6 +848,36 @@
 ;; --- Performance ------
 ;; ----------------------
 
+(deftest return-performance-test
+  (let [n 100000
+        result (promise)]
+    (letfn [(mate [i]
+              (if (>= i n)
+                (m/return :done)
+                (m/monadic
+                 [foo (rea/react! (rea/return 123))]
+                 (mate (inc i)))
+                ))]
+
+      ;; fork many mates
+      (conc/run
+        ;; start time
+        [start (effect! (java.time.Instant/now))]
+
+        ;; run mate
+        (mate 0)
+
+        ;; end time
+        [end (effect! (java.time.Instant/now))]
+
+        (let [millis (.until start end java.time.temporal.ChronoUnit/MILLIS)])
+        (effect! (deliver result millis))
+        ))
+    (println "Returning" n "times took" @result "ms")
+    (println "or: " (double (/ n (/ @result 1000))) "/s")
+    (is true)
+    ))
+
 (deftest channel-performance-no-interference-test
   (let [comm-ch @(conc/run (channels/new-channel))
         stop-ch @(conc/run (channels/new-channel))
