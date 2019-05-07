@@ -215,10 +215,11 @@
   (comm-performance-test "core.async" 10
                          async/chan
                          (fn send [ch v]
-                           (async/>!! ch v))
+                           (async/<!! (async/go (async/>! ch v))))
                          (fn select-rcv-or-snd [rcv-ch snd-ch v]
-                           (async/alt!! rcv-ch ([v] v)
-                                        [[snd-ch v]] nil))
+                           (async/<!! (async/go (async/alt! rcv-ch ([v] v)
+                                                            [[snd-ch v]] nil))))
                          (fn select-rcv2 [rcv-ch1 rcv-ch2]
-                           (first (async/alts!! [rcv-ch1 rcv-ch2])))))
+                           (first (async/<!!
+                                   (async/go (async/alts! [rcv-ch1 rcv-ch2])))))))
 
