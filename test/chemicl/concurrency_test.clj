@@ -22,21 +22,15 @@
       (is (realized? p))
       )))
 
-(defmacro mdo [& forms]
-  `(m/monadic
-    [~'_ (m/return nil)]
-    ~@forms))
-
 (deftest fork-performance-t
   (let [n 100000
         result (promise)]
     (letfn [(mate [i p]
-              (mdo
-               (if (> i n)
-                 (conc/unpark p)
-                 (conc/fork
-                  (mate (inc i) p))
-                 )))]
+              (if (> i n)
+                (conc/unpark p)
+                (conc/fork
+                 (mate (inc i) p))
+                ))]
 
       ;; fork many mates
       (conc/run
