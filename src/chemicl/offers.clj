@@ -34,8 +34,8 @@
      :waiting))
 
 (defn active? [o]
-  (or (waiting? o)
-      (empty? o)))
+  (or (empty? o)
+      (waiting? o)))
 
 ;; accessors
 

@@ -6,13 +6,14 @@
    [chemicl.backoff :as backoff])
   (:refer-clojure :exclude [read]))
 
+(defonce ^:private sentinel-t ::sentinel)
+
 (defn- make-sentinel [rn]
-  [::sentinel rn])
+  [sentinel-t rn])
 
 (defn- sentinel? [v]
-  (and (coll? v)
-       (= (first v)
-          ::sentinel)))
+  (and (vector? v)
+       (identical? (first v) sentinel-t)))
 
 (defmonadic cas-all-to-sentinel-counting [cs sentinel counter]
   (if (empty? cs)
