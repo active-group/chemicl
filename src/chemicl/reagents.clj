@@ -339,7 +339,7 @@
 
 ;; computed : (a -> R () b) -> R a b
 (defn computed [f]
-  (computed-m (m-lift1 f) commit))
+  (computed-m (m-lift1 f)))
 
 ;; lift : (a -> Monad b) -> Reagent a b
 (defn lift-m [f]
