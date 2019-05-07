@@ -25,6 +25,9 @@
 (declare return)
 (declare lift)
 
+(def BLOCK ::block)
+(def RETRY ::retry)
+
 ;; -----------------------------------------------
 ;; Internal building blocks
 
@@ -51,7 +54,7 @@
                                                       (refs/rescind-offers r)))
                    oref ctx))
        ;; else block
-       (m/return :block)))))
+       (m/return BLOCK)))))
 
 ;; --- Shared memory
 
@@ -94,7 +97,7 @@
   (let [msg (and cursor (mq/cursor-value cursor))])
   (if-not msg
     (m/return
-     (if retry? :retry :block))
+     (if retry? RETRY BLOCK))
     ;; else not empty
     ;; TODO: check that it is not our own message (compare oref with sender offer)
     ;; ha, caught one
@@ -115,12 +118,12 @@
 
      ;; handle result
      (cond
-       (= :block res)
+       (= BLOCK res)
        (m/monadic
         [next-cursor (mq/cursor-next cursor)]
         (try-react-swap-from k a rx oref next-cursor retry? ctx))
 
-       (= :retry res)
+       (= RETRY res)
        (m/monadic
         [next-cursor (mq/cursor-next cursor)]
         (try-react-swap-from k a rx oref next-cursor true ctx))
@@ -152,7 +155,7 @@
      (if cursor
        (try-react-swap-from k a rx oref cursor false ctx)
        ;; else block
-       (m/return :block)))))
+       (m/return BLOCK)))))
 
 (defrecord Choose [l r]
   IReagent
@@ -164,7 +167,7 @@
     (m/monadic
      ;; try left
      [lres (try-react l a rx oref ctx)]
-     (if (= :block lres)
+     (if (= BLOCK lres)
        ;; try right
        (try-react r a rx oref ctx)
        ;; else return res
@@ -186,7 +189,7 @@
   [succ (rx/try-commit rx)]
   (if succ
     (m/return a)
-    (m/return :retry)))
+    (m/return RETRY)))
 
 (defrecord Commit []
   IReagent
@@ -269,10 +272,10 @@
 
      (case type
        :block
-       (m/return :block)
+       (m/return BLOCK)
 
        :retry
-       (m/return :retry)
+       (m/return RETRY)
 
        :continue
        (try-react k result
@@ -455,13 +458,13 @@
   [oref (offers/new-offer)]
   [res (try-react reagent a rx-data/empty-rx oref ctx)]
   (cond
-    (= :block res)
+    (= BLOCK res)
     (m/monadic
      (offers/wait oref)
      ;; when continued:
      (with-offer-continue reagent a oref backoff-counter ctx))
 
-    (= :retry res)
+    (= RETRY res)
     ;; backoff.once
     (m/monadic
      (backoff/timeout-with-counter backoff-counter)
@@ -473,11 +476,11 @@
 (defmonadic without-offer [reagent a backoff-counter ctx]
   [res (try-react reagent a rx-data/empty-rx nil ctx)]
   (cond
-    (= :block res)
+    (= BLOCK res)
     (m/monadic
      (with-offer reagent a backoff-counter ctx))
 
-    (= :retry res)
+    (= RETRY res)
     (m/monadic
      (backoff/timeout-with-counter backoff-counter)
      (without-offer reagent a (inc backoff-counter) ctx))

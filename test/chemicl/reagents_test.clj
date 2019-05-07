@@ -699,6 +699,22 @@
      (test-runner/is= res :bounty)
      )))
 
+(deftest return-block-t
+  (let [res (atom nil)
+        rea (rea/return :block)]
+
+    ;; run read reagent
+    (conc/run
+      [out (rea/react! rea nil)]
+      (let [_ (reset! res out)])
+      (conc/print "done"))
+
+    ;; wait
+    (Thread/sleep 20)
+
+    ;; Check result
+    (is (= :block @res))))
+
 ;; ----------------------
 ;; --- Never ------------
 ;; ----------------------
