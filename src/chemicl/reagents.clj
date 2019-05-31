@@ -145,7 +145,7 @@
 
      ;; push offer (if any)
      (whenm oref
-            (mq/push out (make-message a rx k oref)))
+       (mq/push out (make-message a rx k oref) message-is-active?))
 
      ;; clean the in queue
      (mq/clean in message-is-active?)
