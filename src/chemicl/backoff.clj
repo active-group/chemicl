@@ -25,16 +25,17 @@
   (defn retry-reset []
     v))
 
-(defn- nano-sleep []
+(defn- nano-sleep [i]
   ;; these are all not much different. TODO: add/try a conc/yield maybe?
-  (java.util.concurrent.locks.LockSupport/parkNanos 1)
+  (java.util.concurrent.locks.LockSupport/parkNanos i)
   #_(Thread/yield)
   #_(dotimes [n 10000] nil))
 
 (defn timeout-with-counter [counter]
-  (if (zero? counter)
-    (m/return (nano-sleep))
-    (conc/timeout (rand-int (maximum-for counter)))))
+  (m/return
+   (nano-sleep
+    (rand-int
+     (maximum-for counter)))))
 
 (defmonadic with-exponential-backoff-counter [c m]
   [result m]
