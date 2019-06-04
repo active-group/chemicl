@@ -66,9 +66,9 @@
 (acr/define-record-type ThreadState
   (mk-thread-state m counter annotation)
   thread-state?
-  [(m thread-state-m thread-state-m-O)
-   (counter thread-state-counter thread-state-counter-O)
-   (annotation thread-state-annotation thread-state-annotation-O)])
+  [m thread-state-m
+   counter thread-state-counter
+   annotation thread-state-annotation])
 
 (defn- make-thread-state
   ([m]
@@ -77,19 +77,19 @@
    (mk-thread-state m 1 ann)))
 
 (defn- set-thread-state-m [ts m]
-  (lens/shove ts thread-state-m-O m))
+  (lens/shove ts thread-state-m m))
 
 (defn- inc-thread-state-counter [ts]
-  (lens/overhaul ts thread-state-counter-O inc))
+  (lens/overhaul ts thread-state-counter inc))
 
 (defn- dec-thread-state-counter [ts]
-  (lens/overhaul ts thread-state-counter-O dec))
+  (lens/overhaul ts thread-state-counter dec))
 
 (defn- mark-thread-state [ts]
-  (lens/shove ts thread-state-annotation-O :marked))
+  (lens/shove ts thread-state-annotation :marked))
 
 (defn- unmark-thread-state [ts]
-  (lens/shove ts thread-state-annotation-O :unmarked))
+  (lens/shove ts thread-state-annotation :unmarked))
 
 (defn- marked? [ts]
   (= :marked (thread-state-annotation ts)))
