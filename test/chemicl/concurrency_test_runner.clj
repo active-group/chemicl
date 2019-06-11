@@ -7,6 +7,7 @@
 
 (declare make-is-equal-command)
 (declare run-)
+(declare describe-m)
 
 ;; --- Testing API ---------
 
@@ -93,18 +94,55 @@
 (defn- marked? [ts]
   (= :marked (thread-state-annotation ts)))
 
-(defn- new-thread-id [log]
-  (hash log))
+(declare m-log-entry-tid)
+(defn- new-thread-id [m-log]
+  (let [log (map m-log-entry-tid m-log)]
+    (hash log)))
 
-(defn- enact [tid m log m-log threads]
-  (loop [m m]
+
+;; --- Reporting ---------
+
+(acr/define-record-type MLogEntry
+  (make-m-log-entry tid line)
+  m-log-entry?
+  [tid m-log-entry-tid
+   line m-log-entry-line])
+
+(defn pr-m-log-entry [mle]
+  (str (m-log-entry-tid mle)
+       "\t"
+       (m-log-entry-line mle)))
+
+(defn pr-m-log [m-log]
+  (clojure.string/join
+   "\n" (map pr-m-log-entry m-log)))
+
+(defn report-deadlock! [m-log]
+  (test/do-report {:type :fail
+                   :message (str "Found a deadlock!\n\n"
+                                 (pr-m-log m-log))
+                   :expected :no-deadlock
+                   :actual :deadlock
+                   }))
+
+(defn- enact
+  "return [code new-threads retval m-log]"
+  [tid m m-log threads]
+  (loop [m m
+         m-log m-log]
     (cond
       (m/free-bind? m)
       (let [m1 (m/free-bind-monad m)
             c (m/free-bind-cont m)]
         (cond
           (m/free-return? m1)
-          [:continue
+          (recur (c (m/free-return-val m1))
+                 (conj m-log
+                       (make-m-log-entry
+                        tid
+                        (describe-m
+                         (c (m/free-return-val m1))))))
+          #_[:continue
            (update threads tid set-thread-state-m (c (m/free-return-val m1)))
            nil]
 
@@ -114,7 +152,9 @@
                                  (-> ts
                                      (mark-thread-state)
                                      (set-thread-state-m (c nil)))))
-           nil]
+           nil
+           (conj m-log
+                 (make-m-log-entry tid (describe-m (c nil))))]
 
           (unmark-command? m1)
           [:continue
@@ -122,7 +162,9 @@
                                  (-> ts
                                      (unmark-thread-state)
                                      (set-thread-state-m (c nil)))))
-           nil]
+           nil
+           (conj m-log
+                 (make-m-log-entry tid (describe-m (c nil))))]
 
           (is-equal-command? m1)
           (let [expected (is-equal-command-expected m1)
@@ -131,37 +173,38 @@
             (test/do-report {:type (if (= expected actual) :pass :fail)
                              :message (str msg
                                            "\nSchedule:\n"
-                                           (clojure.string/join
-                                            "\n" (map str
-                                                      log
-                                                      (repeat "\t")
-                                                      (map (comp :line meta) m-log)
-                                                      (repeat "\t")
-                                                      (map pr-str m-log))))
+                                           (pr-m-log m-log))
                              :expected expected
                              :actual actual})
-            (recur (c nil))
+            (recur (c nil)
+                   (conj m-log (make-m-log-entry
+                                tid
+                                (describe-m
+                                 (c nil)))))
             #_[:continue
                (update threads tid set-thread-state-m (c tid))
                nil])
 
           (conc/get-current-task-command? m1)
-          (recur (c tid))
+          (recur (c tid)
+                 (conj m-log (make-m-log-entry tid (describe-m (c tid)))))
           #_[:continue
              (update threads tid set-thread-state-m (c tid))
              nil]
 
           (conc/print-command? m1)
           (do
-            (println (conc/print-command-line m1))
-            (recur (c nil))
+            #_(println tid ": " (conc/print-command-line m1))
+            (recur (c nil)
+                   (conj m-log (make-m-log-entry tid (describe-m (c nil)))))
             #_[:continue
                (update threads tid set-thread-state-m (c nil))
                nil])
 
           (conc/new-ref-command? m1)
           (let [a (atom (conc/new-ref-command-init m1))]
-            (recur (c a))
+            (recur (c a)
+                   (conj m-log (make-m-log-entry tid (describe-m (c a)))))
             #_[:continue
              (update threads tid set-thread-state-m (c a))
              nil])
@@ -174,67 +217,74 @@
                                     (conc/cas-command-new-value m1))]
               [:continue
                (update threads tid set-thread-state-m (c succ))
-               nil]))
+               nil
+               (conj m-log (make-m-log-entry tid (describe-m (c succ))))]))
 
           (conc/read-command? m1)
-          (do
-            [:continue
-             (update
-              threads
-              tid
-              set-thread-state-m
-              (c (deref (conc/read-command-ref m1))))
-             nil])
+          [:continue
+           (update
+            threads
+            tid
+            set-thread-state-m
+            (c (deref (conc/read-command-ref m1))))
+           nil
+           (conj m-log
+                 (make-m-log-entry
+                  tid
+                  (describe-m
+                   (c (deref (conc/read-command-ref m1))))))]
 
           (conc/reset-command? m1)
-          (do
-            (let [res (reset! (conc/reset-command-ref m1)
-                              (conc/reset-command-new-value m1))]
-              [:continue
-               (update threads tid set-thread-state-m (c res))
-               nil]))
+          (let [res (reset! (conc/reset-command-ref m1)
+                            (conc/reset-command-new-value m1))]
+            [:continue
+             (update threads tid set-thread-state-m (c res))
+             nil
+             (conj m-log
+                   (make-m-log-entry
+                    tid (describe-m (c res))))])
 
           (conc/park-command? m1)
-          (do
-            #_(println "PARKING")
-            #_(println (pr-str threads))
-            #_(println (pr-str (update threads tid dec-thread-state-counter)))
-            [:continue
-             (update threads tid (fn [ts]
-                                   (-> ts
-                                       (dec-thread-state-counter)
-                                       (set-thread-state-m (c nil)))))
-             nil])
+          [:continue
+           (update threads tid (fn [ts]
+                                 (-> ts
+                                     (dec-thread-state-counter)
+                                     (set-thread-state-m (c nil)))))
+           nil
+           (conj m-log (make-m-log-entry
+                        tid (describe-m (c nil))))]
 
           (conc/unpark-command? m1)
           (let [otid (conc/unpark-command-task m1)]
-            #_(println "UNPARKING")
-            #_(println (pr-str threads))
-            #_(println (pr-str (-> threads
-                                   (update tid set-thread-state-m (c nil))
-                                   (update otid inc-thread-state-counter))))
             [:continue
              (-> threads
                  (update tid set-thread-state-m (c nil))
                  (update otid inc-thread-state-counter))
-             nil])
+             nil
+             (conj m-log (make-m-log-entry
+                          tid (describe-m (c nil))))])
 
           (conc/fork-command? m1)
           (let [forked-m (conc/fork-command-monad m1)
-                forked-tid (new-thread-id log)
+                forked-tid (new-thread-id m-log)
                 ann (thread-state-annotation
                      (get threads tid))]
             [:continue
              (-> threads
                  (update tid set-thread-state-m (c forked-tid))
                  (assoc forked-tid (make-thread-state forked-m ann)))
-             nil])
+             nil
+             (conj m-log (make-m-log-entry
+                          tid (describe-m (c forked-tid))))])
 
           (conc/timeout-command? m1)
-          (recur (c nil))
-          #_[:continue
-             (update threads tid set-thread-state-m (c nil))
-             nil]
+          #_(recur (c nil)
+                 (conj m-log (c nil)))
+          [:continue
+           (update threads tid set-thread-state-m (c nil))
+           nil
+           (conj m-log (make-m-log-entry
+                        tid (describe-m (c nil))))]
 
           :else
           (throw (ex-info (str "Unknown monad command: " m1) {:command m1}))))
@@ -242,17 +292,20 @@
       (m/free-return? m)
       [:done
        (dissoc threads tid)
-       (m/free-return-val m)]
+       (m/free-return-val m)
+       m-log]
 
       (mark-command? m)
       [:done
        (dissoc threads tid)
-       nil]
+       nil
+       m-log]
 
       (unmark-command? m)
       [:done
        (dissoc threads tid)
-       nil]
+       nil
+       m-log]
 
       (is-equal-command? m)
       (let [expected (is-equal-command-expected m)
@@ -261,31 +314,28 @@
         (test/do-report {:type (if (= expected actual) :pass :fail)
                          :message (str msg
                                        "\nSchedule:\n"
-                                       (clojure.string/join
-                                        "\n" (map str
-                                                  log
-                                                  (repeat "\t")
-                                                  (map (comp :line meta) m-log)
-                                                  (repeat "\t")
-                                                  (map pr-str m-log))))
+                                       (pr-m-log m-log))
                          :expected expected
                          :actual actual})
         [:done
          (dissoc threads tid)
-         nil])
+         nil
+         m-log])
 
       (conc/print-command? m)
       (do
-        (println (conc/print-command-line m))
+        #_(println (conc/print-command-line m))
         [:done
          (dissoc threads tid)
-         nil])
+         nil
+         m-log])
 
       (conc/new-ref-command? m)
       (let [a (atom (conc/new-ref-command-init m))]
         [:done
          (dissoc threads tid)
-         a])
+         a
+         m-log])
 
       (conc/cas-command? m)
       (let [succ 
@@ -294,53 +344,55 @@
                               (conc/cas-command-new-value m))]
         [:done
          (dissoc threads tid)
-         succ])
+         succ
+         m-log])
 
       (conc/read-command? m)
       [:done
        (dissoc threads tid)
-       (deref (conc/read-command-ref m))]
+       (deref (conc/read-command-ref m))
+       m-log]
 
       (conc/reset-command? m)
       (let [res (reset! (conc/reset-command-ref m)
                         (conc/reset-command-new-value m))]
         [:done
          (dissoc threads tid)
-         res])
+         res
+         m-log])
 
       (conc/park-command? m)
       [:done
        (dissoc threads tid)
-       nil]
+       nil
+       m-log]
 
       (conc/unpark-command? m)
       (let [otid (conc/unpark-command-task m)]
-        #_(println "UNPARKING")
-        #_(println (pr-str threads))
-        #_(println (pr-str (-> threads
-                               (dissoc tid)
-                               (update otid inc-thread-state-counter))))
         [:done
          (-> threads
              (dissoc tid)
              (update otid inc-thread-state-counter))
-         nil])
+         nil
+         m-log])
 
       (conc/fork-command? m)
       (let [forked-m (conc/fork-command-monad m)
-            forked-tid (new-thread-id log)
+            forked-tid (new-thread-id m-log)
             ann (thread-state-annotation
                  (get threads tid))]
         [:done
          (-> threads
              (dissoc tid)
              (assoc forked-tid (make-thread-state forked-m ann)))
-         forked-tid])
+         forked-tid
+         m-log])
 
       (conc/timeout-command? m)
       [:done
        (dissoc threads tid)
-       nil]
+       nil
+       m-log]
 
       :else
       (throw (ex-info (str "Unknown monad command: " m) {:command m}))
@@ -478,15 +530,7 @@
 
 (defn- prefixes [prefix threads m-log]
   (when (deadlocked? threads)
-    (test/do-report {:type :fail
-                     :message (str "Found a deadlock!\n\n"
-                                   "M-log:\n"
-                                   (clojure.string/join "\n" (map pr-str prefix m-log))
-                                   "Threads:\n"
-                                   (with-out-str (clojure.pprint/pprint threads)))
-                     :expected :no-deadlock
-                     :actual :deadlock
-                     }))
+    (report-deadlock! m-log))
   
   (let [active-threads (filter-values active? threads)
         active+staying-traced-threads (filter-values
@@ -511,7 +555,6 @@
   [prefix m]
   (loop [threads {INITIAL-TID (make-thread-state m)}
          pre prefix
-         log []
          m-log []]
     (if-let [next-tid (first pre)]
       ;; run
@@ -519,16 +562,15 @@
             _ (when (= ts ::undefined)
                 (throw (ex-info "No thread state defined for thread" {:tid next-tid})))
 
-            [code new-threads return-val]
-            (enact next-tid (thread-state-m ts) log m-log threads)]
+            [code new-threads return-val new-m-log]
+            (enact next-tid (thread-state-m ts) m-log threads)]
 
         (case code
           :continue
           (recur
            new-threads
            (rest pre)
-           (conj log next-tid)
-           (conj m-log (thread-state-m ts)))
+           new-m-log)
 
           :done
           (if (= next-tid INITIAL-TID)
@@ -539,8 +581,7 @@
             (recur
              new-threads
              (rest pre)
-             (conj log next-tid)
-             (conj m-log (thread-state-m ts))))
+             new-m-log))
 
           (throw (ex-info "Unknown code" {:value code}))))
       ;; else done
@@ -575,39 +616,144 @@
 ;; --- Random depth-first-search test runner ---------
 
 (defn random-thread [threads]
-  (rand-nth (schedulable-threads threads)))
+  (if (not-empty (schedulable-threads threads))
+    (rand-nth (schedulable-threads threads))))
+
+(defn describe-m [m]
+  (cond
+    (m/free-bind? m)
+    (let [m1 (m/free-bind-monad m)
+          c (m/free-bind-cont m)]
+      (cond
+        (m/free-return? m1)
+        (str "return " (pr-str (m/free-return-val m1)))
+
+        (mark-command? m1)
+        "mark"
+
+        (unmark-command? m1)
+        "unmark"
+
+        (is-equal-command? m1)
+        "is check"
+
+        (conc/get-current-task-command? m1)
+        "get current task"
+
+        (conc/print-command? m1)
+        (str "print " (conc/print-command-line m1))
+
+        (conc/new-ref-command? m1)
+        (let [a (atom (conc/new-ref-command-init m1))]
+          (str "new-ref => " a))
+
+        (conc/cas-command? m1)
+        (str "cas"
+             "\t" (pr-str (conc/cas-command-ref m1))
+             "\t" (pr-str (conc/cas-command-old-value m1))
+             "\t" (pr-str (conc/cas-command-new-value m1)))
+
+        (conc/read-command? m1)
+        (str "read " (pr-str (conc/read-command-ref m1)))
+
+        (conc/reset-command? m1)
+        (str "reset"
+             "\t" (pr-str (conc/reset-command-ref m1))
+             "\t" (pr-str (conc/reset-command-new-value m1)))
+
+        (conc/park-command? m1)
+        "park"
+
+        (conc/unpark-command? m1)
+        "unpark"
+
+        (conc/fork-command? m1)
+        "fork"
+
+        (conc/timeout-command? m1)
+        "timeout"
+
+        :else
+        (throw (ex-info (str "Unknown monad command: " m1) {:command m1}))))
+
+    (m/free-return? m)
+    (str "return " (pr-str (m/free-return-val m)))
+
+    (mark-command? m)
+    "mark"
+
+    (unmark-command? m)
+    "unmark"
+
+    (is-equal-command? m)
+    "is check"
+
+    (conc/print-command? m)
+    (str "print " (conc/print-command-line m))
+
+    (conc/new-ref-command? m)
+    (let [a (atom (conc/new-ref-command-init m))]
+      (str "new-ref => " a))
+
+    (conc/cas-command? m)
+    (str "cas"
+         "\t" (pr-str (conc/cas-command-ref m))
+         "\t" (pr-str (conc/cas-command-old-value m))
+         "\t" (pr-str (conc/cas-command-new-value m)))
+
+    (conc/read-command? m)
+    (str "read " (pr-str (conc/read-command-ref m)))
+
+    (conc/reset-command? m)
+    (str "reset"
+         "\t" (pr-str (conc/reset-command-ref m))
+         "\t" (pr-str (conc/reset-command-new-value m)))
+
+    (conc/park-command? m)
+    "park"
+
+    (conc/unpark-command? m)
+    "unpark"
+
+    (conc/fork-command? m)
+    "fork"
+
+    (conc/timeout-command? m)
+    "timeout"
+
+    :else
+    (throw (ex-info (str "Unknown monad command: " m) {:command m}))
+    ))
+
 
 (defn run-randomized [m]
   (loop [threads {INITIAL-TID (make-thread-state m)}
-         log []]
+         m-log []]
 
     (when (deadlocked? threads)
-      (test/do-report {:type :fail
-                       :message (str "Found a deadlock!\n\n"
-                                     "Threads:\n"
-                                     (with-out-str (clojure.pprint/pprint threads)))
-                       :expected :no-deadlock
-                       :actual :deadlock
-                       }))
+      (report-deadlock! m-log))
 
     (if-let [[tid ts] (random-thread threads)]
       ;; run
-      (let [[code new-threads return-val]
-            (enact tid (thread-state-m ts) log nil threads)]
+      (let [[code new-threads return-val new-m-log]
+            (enact tid (thread-state-m ts) m-log threads)]
+
         (case code
           :continue ;; this thread is not yet finished
-          (recur new-threads (conj log tid))
+          (recur new-threads
+                 new-m-log)
 
           :done ;; this thread is finished
           (if (= tid INITIAL-TID)
             ;; initial thread is done
             ;; we can omit the others and return
-            log
+            m-log
             ;; else continue with another thread
-            (recur new-threads (conj log tid)))))
+            (recur new-threads
+                   new-m-log))))
 
       ;; else done
-      log
+      m-log
       )))
 
 (defn run-randomized-n [n m]
@@ -617,24 +763,4 @@
              (let [log (run-randomized m)]
                (swap! logs conj log)))
            (repeat n m)))
-    (println "n unique runs:" (pr-str (count @logs)))
-    ))
-
-#_(test/deftest run-randomized-n-t
-  (let [failing-m (m/monadic
-                   [r (conc/new-ref :nothing)]
-
-                   (conc/fork
-                    (m/monadic
-                     (mark)
-                     (conc/reset r :one)
-                     (unmark)))
-
-                   (mark)
-                   (conc/reset r :two)
-                   (unmark)
-
-                   [v (conc/read r)]
-                   (is= v :two))]
-    (run-randomized-n 10 failing-m)
-    ))
+    (println "n unique runs:" (pr-str (count @logs)))))
